@@ -1,6 +1,9 @@
 # Dependencies
 node_modules/
 
+# Rust backend build output
+target/
+
 # Build output
 dist/
 *.tsbuildinfo

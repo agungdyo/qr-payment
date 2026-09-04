@@ -1,0 +1,14 @@
+{
+  "Servers": {
+    "1": {
+      "Name": "QR Payment PostgreSQL",
+      "Group": "Servers",
+      "Host": "postgres",
+      "Port": 5432,
+      "MaintenanceDB": "qrpayment",
+      "Username": "qrpayment",
+      "Password": "qrpayment",
+      "SSLMode": "prefer"
+    }
+  }
+}
