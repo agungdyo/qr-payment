@@ -1,7 +1,7 @@
 {
-  "name": "qr-payment-demo-v1",
+  "name": "qr-payment-frontend",
   "private": true,
-  "version": "1.0.0",
+  "version": "0.1.0",
   "type": "module",
   "scripts": {
     "dev": "vite",
