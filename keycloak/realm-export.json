@@ -13,15 +13,9 @@
     "description": "${role_default-roles}",
     "composite": true,
     "composites": {
-      "realm": [
-        "offline_access",
-        "uma_authorization"
-      ],
+      "realm": ["offline_access"],
       "client": {
-        "account": [
-          "view-profile",
-          "manage-account"
-        ]
+        "account": ["view-profile", "manage-account"]
       }
     }
   },
@@ -32,26 +26,20 @@
         "description": "${role_default-roles}",
         "composite": true,
         "composites": {
-          "realm": [
-            "offline_access",
-            "uma_authorization"
-          ],
+          "realm": ["offline_access"],
           "client": {
-            "account": [
-              "view-profile",
-              "manage-account"
-            ]
+            "account": ["view-profile", "manage-account"]
           }
         }
       },
       {
         "name": "admin",
-        "description": "Full access — manage workspaces, lockers, settings, users",
+        "description": "Full access",
         "composite": false
       },
       {
         "name": "operator",
-        "description": "Limited access — daily operations",
+        "description": "Limited access",
         "composite": false
       }
     ]
@@ -68,13 +56,8 @@
       "implicitFlowEnabled": false,
       "directAccessGrantsEnabled": false,
       "serviceAccountsEnabled": false,
-      "redirectUris": [
-        "http://localhost:3000/auth/callback"
-      ],
-      "webOrigins": [
-        "http://localhost:5173",
-        "http://localhost:3000"
-      ],
+      "redirectUris": ["http://localhost:3000/auth/callback"],
+      "webOrigins": ["http://localhost:5173", "http://localhost:3000"],
       "attributes": {
         "pkce.code.challenge.method": "S256",
         "post.logout.redirect.uris": "http://localhost:5173/*"
@@ -89,16 +72,8 @@
       "firstName": "Admin",
       "lastName": "Utama",
       "emailVerified": true,
-      "credentials": [
-        {
-          "type": "password",
-          "value": "admin123",
-          "temporary": false
-        }
-      ],
-      "realmRoles": [
-        "admin"
-      ]
+      "credentials": [{"type": "password", "value": "admin123", "temporary": false}],
+      "realmRoles": ["admin"]
     },
     {
       "username": "operator",
@@ -107,16 +82,8 @@
       "firstName": "Operator",
       "lastName": "Lapangan",
       "emailVerified": true,
-      "credentials": [
-        {
-          "type": "password",
-          "value": "operator123",
-          "temporary": false
-        }
-      ],
-      "realmRoles": [
-        "operator"
-      ]
+      "credentials": [{"type": "password", "value": "operator123", "temporary": false}],
+      "realmRoles": ["operator"]
     },
     {
       "username": "customer",
@@ -125,13 +92,7 @@
       "firstName": "Customer",
       "lastName": "Umum",
       "emailVerified": true,
-      "credentials": [
-        {
-          "type": "password",
-          "value": "customer123",
-          "temporary": false
-        }
-      ],
+      "credentials": [{"type": "password", "value": "customer123", "temporary": false}],
       "realmRoles": []
     }
   ]

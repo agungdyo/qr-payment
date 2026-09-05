@@ -1,0 +1,9 @@
+
+======================================
+npm install
+docker-compose up -d
+
+if there any blocking port, change it with docker-compose down -vm the  docker-compose up -d again
+
+ipm install
+cargo run

@@ -6,14 +6,14 @@ import { AdminLockersPage } from '@/pages/admin/AdminLockersPage'
 import { AdminSettingsPage } from '@/pages/admin/AdminSettingsPage'
 import { AdminWorkspacesPage } from '@/pages/admin/AdminWorkspacesPage'
 import { WorkspaceFormPage } from '@/pages/admin/WorkspaceFormPage'
-import { DemoHomePage } from '@/pages/DemoHomePage'
+import { HomePage } from '@/pages/HomePage'
 import { PaymentFlowPage } from '@/pages/PaymentFlowPage'
 
 export default function App() {
   return (
     <Routes>
       {/* Customer */}
-      <Route path="/" element={<DemoHomePage />} />
+      <Route path="/" element={<HomePage />} />
       <Route path="/w/:workspaceCode" element={<PaymentFlowPage />} />
 
       {/* Admin console */}
