@@ -9,6 +9,7 @@ services:
     ports:
       - "5434:5432"
     volumes:
+      - ./postgres-init:/docker-entrypoint-initdb.d:ro
       - qr_pgdata:/var/lib/postgresql/data
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U qrpayment -d qrpayment"]
@@ -30,7 +31,7 @@ services:
       KC_DB_SCHEMA: public
       KC_HOSTNAME: localhost
     ports:
-      - "8083:8081"
+      - "8083:8080"
     volumes:
       - ./keycloak:/opt/keycloak/data/import:ro
     depends_on:
@@ -54,5 +55,5 @@ services:
         condition: service_healthy
 
 volumes:
-  pgadmin_data:
   qr_pgdata:
+  pgadmin_data:
