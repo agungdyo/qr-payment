@@ -12,9 +12,9 @@
 | :--- | :--- |
 | Lokasi | Root `qr-payment/` (Cargo.toml, `src/`, `migrations/`, `docker-compose.yml`, `keycloak/`) |
 | Auth | Keycloak OIDC — authorization code + PKCE, session server-side di Postgres (`tower-sessions`) |
-| Login restricted | Hanya role realm **`admin`** dan **`operator`** (selain itu → 403 di `/auth/callback`) |
-| Proteksi | Semua `/api/v1/admin/*` wajib session + role `admin`/`operator` (extractor `AuthAdmin`) |
-| Logout | RP-initiated logout ke `end_session_endpoint` Keycloak (`id_token_hint` + `post_logout_redirect_uri`) |
+| Login restricted | Tidak ada — backend menggunakan model sesaat seperti diary-maja-id: setiap user Keycloak yang terotentikasi boleh login |
+| Proteksi | Semua `/api/v1/admin/*` wajib session (extractor `AuthAdmin`); tidak ada pemeriksaan role pada callback |
+| Logout | Hanya flush session aplikasi + redirect ke frontend (tidak ada RP-initiated logout ke Keycloak) |
 | Pembayaran | MAJA H2H v2.2: token ROPG, `register` (VA), `inquiry`, `cancel`, webhook notification |
 | Harga | Server-side: tier/hourly → subtotal + PPN 11% + VA admin fee **Rp 3.500** |
 
@@ -37,16 +37,15 @@
 - [x] `keycloak/realm-export.json` + `pgadmin/servers.json`
 
 ### BE-002 — Realm Keycloak `qr-payment`
-- [x] Role realm: `admin`, `operator`; `registrationAllowed: false`
 - [x] Client confidential `qr-payment` (PKCE S256, redirect `{BASE_URL}/auth/callback`, `post.logout.redirect.uris` → frontend)
-- [x] Demo user: `admin/admin123`, `operator/operator123`, `customer/customer123` (customer **ditolak login**)
+- [x] Demo user: `admin/admin123`, `operator/operator123`, `customer/customer123`
 
 ### BE-003 — Auth (Keycloak OIDC)
 - [x] `GET /auth/login` — authorize URL + PKCE/state/nonce
-- [x] `GET /auth/callback` — validasi state/nonce, exchange code, **role check `admin`|`operator`** → selain itu 403
-- [x] `GET /auth/me` — `{authenticated, user, roles}` (probe guard frontend)
-- [x] `GET /auth/logout` — flush session + end_session Keycloak (RP-initiated)
-- [x] Extractor `AuthAdmin` → 401 tanpa session, 403 tanpa role
+- [x] `GET /auth/callback` — validasi state/nonce, exchange code, upsert user, buat session
+- [x] `GET /auth/me` — `{authenticated, user}` (probe guard frontend)
+- [x] `GET /auth/logout` — flush session + redirect ke frontend
+- [x] Extractor `AuthAdmin` → 401 tanpa session
 
 ### BE-004 — Database (SQLx migrations)
 - [x] `0001_init.sql`: `workspaces`, `workspace_tiers`, `lockers`, `settings` (single-row), `bookings` (= MAJA invoice number), `payments`, `payment_events` (audit), unique index idempotensi `uq_payments_paid_invoice`
@@ -134,7 +133,7 @@
 | FE-AUTH-1 | `client.ts` kirim cookie (`credentials: 'include'`) | [ ] |
 | FE-AUTH-2 | Guard route `/admin` → cek `/auth/me` → 401 → redirect `/auth/login` | [ ] |
 | FE-AUTH-3 | Tombol Logout di AdminLayout → `/auth/logout` | [ ] |
-| FE-AUTH-4 | Role-based UI (operator tidak bisa hapus/destroy — sembunyikan aksi delete) | [ ] |
+
 
 ---
 
@@ -177,9 +176,9 @@ Login admin: `admin/admin123` · operator: `operator123` · Keycloak console: `h
 | POST | `/api/v1/payments/initiate` · `/payments/{id}/inquiry` · `/payments/{id}/cancel` | — |
 | GET | `/api/v1/payments/{id}` · `/public/settings` | — |
 | POST | `/api/v1/payments/callback` (webhook MAJA) | MAJA |
-| GET/POST | `/api/v1/admin/workspaces` · PUT `/{code}` | Admin/Operator |
-| GET/POST | `/api/v1/admin/lockers` · PUT/DELETE `/{id}` | Admin/Operator |
-| GET/PUT | `/api/v1/admin/settings` · GET `/admin/stats` · GET `/admin/payments` | Admin/Operator |
+| GET/POST | `/api/v1/admin/workspaces` · PUT `/{code}` | Admin |
+| GET/POST | `/api/v1/admin/lockers` · PUT/DELETE `/{id}` | Admin |
+| GET/PUT | `/api/v1/admin/settings` · GET `/admin/stats` · GET `/admin/payments` | Admin |
 
 ---
 

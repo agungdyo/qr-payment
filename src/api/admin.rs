@@ -1,14 +1,16 @@
 use axum::{
-    extract::{Path, Query, State},
+    extract::{FromRequestParts, Path, Query, State},
+    http::request::Parts,
     Json,
 };
 use serde::Deserialize;
 use serde_json::{json, Value};
+use tower_sessions::Session;
 use uuid::Uuid;
 
 use crate::{
     api::{group_workspaces, load_tiers, load_workspace_dto, payment_to_dto, WORKSPACE_SELECT},
-    auth::AuthAdmin,
+    auth::{self, AdminAuth, AuthAdmin},
     error::AppError,
     models::{
         AdminStats, Locker, LockerInput, Payment, Settings, SettingsInput, WorkspaceCreateInput,
@@ -17,15 +19,38 @@ use crate::{
     state::AppState,
 };
 
+/// Extractor for admin endpoints: logged-in user required.
+pub struct AdminAuth(pub auth::User);
+
+impl FromRequestParts<AppState> for AdminAuth {
+    type Rejection = AppError;
+
+    async fn from_request_parts(
+        parts: &mut Parts,
+        state: &AppState,
+    ) -> Result<Self, Self::Rejection> {
+        let session = Session::from_request_parts(parts, state)
+            .await
+            .map_err(|_| AppError::Unauthorized)?;
+        let user_id: Option<Uuid> = session.get(auth::SESSION_USER_KEY).await?;
+        let user_id = user_id.ok_or(AppError::Unauthorized)?;
+        let user = auth::find_user(&state.pool, user_id).await?;
+        Ok(AdminAuth(user))
+    }
+}
+
+/// Compat alias kept for call sites that still use the old name.
+pub use AdminAuth as AuthAdmin;
+
 #[derive(Debug, Deserialize)]
 pub struct ListPaymentsQuery {
     pub limit: Option<i64>,
 }
 
 /// GET /api/v1/admin/stats
-pub async fn stats(
+pub async fn    stats(
     State(state): State<AppState>,
-    _auth: AuthAdmin,
+    _auth: AdminAuth,
 ) -> Result<Json<AdminStats>, AppError> {
     let workspace_total: i64 =
         sqlx::query_scalar("SELECT count(*) FROM workspaces").fetch_one(&state.pool).await?;
@@ -55,7 +80,7 @@ pub async fn stats(
 /// GET /api/v1/admin/workspaces — all workspaces (active or not) with tiers.
 pub async fn list_workspaces(
     State(state): State<AppState>,
-    _auth: AuthAdmin,
+    _auth: AdminAuth,
 ) -> Result<Json<Vec<WorkspaceDto>>, AppError> {
     let rows = sqlx::query_as::<_, WorkspaceRow>(&format!("{WORKSPACE_SELECT} ORDER BY w.code"))
         .fetch_all(&state.pool)
@@ -67,7 +92,7 @@ pub async fn list_workspaces(
 /// POST /api/v1/admin/workspaces
 pub async fn create_workspace(
     State(state): State<AppState>,
-    _auth: AuthAdmin,
+    _auth: AdminAuth,
     Json(input): Json<WorkspaceCreateInput>,
 ) -> Result<Json<WorkspaceDto>, AppError> {
     let code = input.code.trim().to_string();
@@ -100,7 +125,7 @@ pub async fn create_workspace(
 /// PUT /api/v1/admin/workspaces/{code}
 pub async fn update_workspace(
     State(state): State<AppState>,
-    _auth: AuthAdmin,
+    _auth: AdminAuth,
     Path(code): Path<String>,
     Json(input): Json<WorkspaceInput>,
 ) -> Result<Json<WorkspaceDto>, AppError> {
@@ -137,7 +162,7 @@ pub async fn update_workspace(
 /// GET /api/v1/admin/lockers
 pub async fn list_lockers(
     State(state): State<AppState>,
-    _auth: AuthAdmin,
+    _auth: AdminAuth,
 ) -> Result<Json<Vec<Locker>>, AppError> {
     let rows = sqlx::query_as::<_, Locker>("SELECT * FROM lockers ORDER BY code")
         .fetch_all(&state.pool)
@@ -148,7 +173,7 @@ pub async fn list_lockers(
 /// POST /api/v1/admin/lockers
 pub async fn create_locker(
     State(state): State<AppState>,
-    _auth: AuthAdmin,
+    _auth: AdminAuth,
     Json(input): Json<LockerInput>,
 ) -> Result<Json<Locker>, AppError> {
     if input.code.trim().is_empty() {
@@ -170,7 +195,7 @@ pub async fn create_locker(
 /// PUT /api/v1/admin/lockers/{id}
 pub async fn update_locker(
     State(state): State<AppState>,
-    _auth: AuthAdmin,
+    _auth: AdminAuth,
     Path(id): Path<Uuid>,
     Json(input): Json<LockerInput>,
 ) -> Result<Json<Locker>, AppError> {
@@ -192,7 +217,7 @@ pub async fn update_locker(
 /// DELETE /api/v1/admin/lockers/{id}
 pub async fn delete_locker(
     State(state): State<AppState>,
-    _auth: AuthAdmin,
+    _auth: AdminAuth,
     Path(id): Path<Uuid>,
 ) -> Result<Json<Value>, AppError> {
     let deleted = sqlx::query("DELETE FROM lockers WHERE id = $1")
@@ -208,7 +233,7 @@ pub async fn delete_locker(
 /// GET /api/v1/admin/settings
 pub async fn get_settings(
     State(state): State<AppState>,
-    _auth: AuthAdmin,
+    _auth: AdminAuth,
 ) -> Result<Json<Settings>, AppError> {
     let settings = sqlx::query_as::<_, Settings>("SELECT * FROM settings WHERE id = 1")
         .fetch_one(&state.pool)
@@ -219,7 +244,7 @@ pub async fn get_settings(
 /// PUT /api/v1/admin/settings
 pub async fn update_settings(
     State(state): State<AppState>,
-    _auth: AuthAdmin,
+    _auth: AdminAuth,
     Json(input): Json<SettingsInput>,
 ) -> Result<Json<Settings>, AppError> {
     let settings = sqlx::query_as::<_, Settings>(
@@ -239,7 +264,7 @@ pub async fn update_settings(
 /// GET /api/v1/admin/payments?limit=N — recent payments (frontend dashboard).
 pub async fn list_payments(
     State(state): State<AppState>,
-    _auth: AuthAdmin,
+    _auth: AdminAuth,
     Query(query): Query<ListPaymentsQuery>,
 ) -> Result<Json<Vec<crate::models::PaymentDto>>, AppError> {
     let limit = query.limit.unwrap_or(8).clamp(1, 100);

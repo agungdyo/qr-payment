@@ -12,7 +12,6 @@ export interface AuthMeResponse {
     name?: string
     email?: string
   }
-  roles?: string[]
 }
 
 export async function authMe(): Promise<AuthMeResponse> {

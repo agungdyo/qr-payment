@@ -4,18 +4,16 @@ use anyhow::Result;
 use axum::{
     extract::{FromRequestParts, Query},
     http::request::Parts,
-    response::{IntoResponse, Redirect, Response},
+    response::Redirect,
     Json,
 };
-use base64::Engine;
 use openidconnect::{
-    OAuth2TokenResponse,
     core::{CoreClient, CoreProviderMetadata, CoreResponseType},
     reqwest, AuthenticationFlow, AuthorizationCode, ClientId, ClientSecret, CsrfToken,
     EndpointMaybeSet, EndpointNotSet, EndpointSet, IssuerUrl, Nonce, PkceCodeChallenge,
-    PkceCodeVerifier, ProviderMetadataWithLogout, RedirectUrl, Scope,
+    PkceCodeVerifier, RedirectUrl, Scope,
 };
-use serde_json::{json, Value};
+use serde_json::json;
 use tokio::sync::OnceCell;
 use tower_sessions::Session;
 use url::Url;
@@ -24,14 +22,9 @@ use uuid::Uuid;
 use crate::{error::AppError, models::User, state::AppState};
 
 pub const SESSION_USER_KEY: &str = "user_id";
-pub const SESSION_ROLES_KEY: &str = "roles";
-pub const SESSION_ID_TOKEN_KEY: &str = "id_token";
 const SESSION_CSRF_KEY: &str = "oidc_csrf";
 const SESSION_NONCE_KEY: &str = "oidc_nonce";
 const SESSION_VERIFIER_KEY: &str = "oidc_pkce_verifier";
-
-/// Only these Keycloak realm roles may sign in and use the admin console.
-pub const ALLOWED_ROLES: [&str; 2] = ["admin", "operator"];
 
 /// A `CoreClient` fully configured via provider discovery: auth endpoint set,
 /// token/userinfo endpoints maybe-set (Keycloak provides both).
@@ -99,18 +92,6 @@ impl OidcClient {
     pub fn http(&self) -> &reqwest::Client {
         &self.http
     }
-
-    /// Keycloak `end_session_endpoint` for RP-initiated logout (discovered on
-    /// demand so logout works even if the cached client is stale).
-    pub async fn end_session_endpoint(&self) -> Result<Option<Url>> {
-        let issuer_url = IssuerUrl::new(self.issuer.clone())?;
-        let metadata = ProviderMetadataWithLogout::discover_async(issuer_url, &self.http).await?;
-        Ok(metadata
-            .additional_metadata()
-            .end_session_endpoint
-            .as_ref()
-            .map(|endpoint| endpoint.url().clone()))
-    }
 }
 
 pub struct AuthStart {
@@ -143,58 +124,9 @@ pub async fn start_login(oidc: &OidcClient) -> Result<AuthStart> {
     })
 }
 
-/// Decode a JWT and extract roles from Keycloak's realm_access.roles or resource_access.
-fn extract_realm_roles(jwt: &str) -> Vec<String> {
-    let segments: Vec<&str> = jwt.split('.').collect();
-    if segments.len() < 2 {
-        return Vec::new();
-    };
-    
-    let Ok(bytes) = base64::engine::general_purpose::URL_SAFE_NO_PAD.decode(segments[1])
-    else {
-        return Vec::new();
-    };
-    
-    let Ok(json) = serde_json::from_slice::<Value>(&bytes) else {
-        return Vec::new();
-    };
-    
-    // Try realm_access.roles first (for realm roles)
-    let mut roles: Vec<String> = json.pointer("/realm_access/roles")
-        .and_then(|r| r.as_array())
-        .map(|arr| arr.iter().filter_map(|v| v.as_str().map(String::from)).collect())
-        .unwrap_or_default();
-    
-    // Also check resource_access.{client_id}.roles if present
-    if let Some(resource) = json.get("resource_access") {
-        if let Some(obj) = resource.as_object() {
-            for (_client_id, access) in obj {
-                if let Some(client_roles) = access.get("roles") {
-                    if let Some(arr) = client_roles.as_array() {
-                        for role in arr {
-                            if let Some(s) = role.as_str() {
-                                if !roles.contains(&s.to_string()) {
-                                    roles.push(s.to_string());
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        }
-    }
-    
-    tracing::debug!("Extracted roles from JWT: {:?}", roles);
-    roles
-}
-
-pub fn has_staff_role(roles: &[String]) -> bool {
-    roles.iter().any(|r| ALLOWED_ROLES.contains(&r.as_str()))
-}
-
 /// Extract the user identity from verified ID token claims.
 fn claims_to_profile(
-    claims: &openidconnect::core::CoreIdTokenClaims,
+    claims: &CoreIdTokenClaims,
 ) -> (String, String, Option<String>, Option<String>) {
     let sub = claims.subject().as_str().to_string();
     let username = claims
@@ -212,7 +144,7 @@ fn claims_to_profile(
 /// Upsert the user from Keycloak claims and return the stored row.
 pub async fn upsert_user(
     pool: &sqlx::PgPool,
-    claims: &openidconnect::core::CoreIdTokenClaims,
+    claims: &CoreIdTokenClaims,
 ) -> Result<User, AppError> {
     let (sub, username, email, name) = claims_to_profile(claims);
     let display_name = name.clone().unwrap_or_else(|| username.clone());
@@ -281,8 +213,8 @@ pub async fn login(
     Ok(Redirect::to(start.url.as_str()))
 }
 
-/// GET /auth/callback — exchange the code, verify state/nonce, enforce the
-/// admin/operator role, then establish the app session.
+/// GET /auth/callback — exchange the code, verify state/nonce, upsert the user
+/// and establish the app session.
 pub async fn callback(
     axum::extract::State(state): axum::extract::State<AppState>,
     session: Session,
@@ -312,36 +244,16 @@ pub async fn callback(
         .request_async(state.oidc.http())
         .await
         .map_err(|e| AppError::Internal(e.into()))?;
-
-    // Raw ID token string: used for role extraction (realm_access) and for the
-    // RP-initiated logout call to Keycloak's end_session endpoint.
     let id_token = token_response
         .extra_fields()
         .id_token()
         .ok_or_else(|| AppError::bad_request("server did not return an ID token"))?;
-    let raw_id_token = id_token.to_string();
-
     let claims = id_token
         .claims(&client.id_token_verifier(), &Nonce::new(nonce))
         .map_err(|e| AppError::Internal(e.into()))?;
 
-    // Login is restricted to `admin` and `operator` roles only.
-    // Get access token and extract roles from it (Keycloak includes roles in access token)
-    let access_token = token_response.access_token().secret().to_string();
-    let roles = extract_realm_roles(&access_token);
-    if !has_staff_role(&roles) {
-        tracing::warn!(
-            username = ?claims.preferred_username().map(|u| u.as_str()),
-            roles = ?roles,
-            "login rejected: user has no admin/operator role"
-        );
-        return Err(AppError::Forbidden);
-    }
-
     let user = upsert_user(&state.pool, claims).await?;
     session.insert(SESSION_USER_KEY, user.id).await?;
-    session.insert(SESSION_ROLES_KEY, roles).await?;
-    session.insert(SESSION_ID_TOKEN_KEY, raw_id_token).await?;
     session.remove::<String>(SESSION_CSRF_KEY).await?;
     session.remove::<String>(SESSION_NONCE_KEY).await?;
     session.remove::<String>(SESSION_VERIFIER_KEY).await?;
@@ -350,33 +262,16 @@ pub async fn callback(
     Ok(Redirect::to(&format!("{}/admin", state.config.app_url)))
 }
 
-/// GET /auth/logout — destroy the app session and end the Keycloak SSO session
-/// (RP-initiated logout) before returning to the frontend.
+/// GET /auth/logout — destroy the app session and return to the frontend.
 pub async fn logout(
     axum::extract::State(state): axum::extract::State<AppState>,
     session: Session,
-) -> Response {
-    let id_token: Option<String> = session.get(SESSION_ID_TOKEN_KEY).await.ok().flatten();
+) -> Redirect {
     let _ = session.flush().await;
-
-    let target = match id_token {
-        Some(token) => match state.oidc.end_session_endpoint().await {
-            Ok(Some(endpoint)) => {
-                let mut url = endpoint.clone();
-                url.query_pairs_mut()
-                    .append_pair("id_token_hint", &token)
-                    .append_pair("post_logout_redirect_uri", &state.config.app_url)
-                    .append_pair("client_id", &state.config.oidc_client_id);
-                url.to_string()
-            }
-            _ => state.config.app_url.clone(),
-        },
-        None => state.config.app_url.clone(),
-    };
-    Redirect::to(&target).into_response()
+    Redirect::to(&format!("{}/login", state.config.app_url))
 }
 
-/// GET /auth/me — current session user + roles (frontend `/admin` guard probe).
+/// GET /auth/me — current session user (frontend `/admin` guard probe).
 pub async fn me(
     axum::extract::State(state): axum::extract::State<AppState>,
     session: Session,
@@ -385,19 +280,17 @@ pub async fn me(
     match user_id {
         Some(id) => {
             let user = find_user(&state.pool, id).await?;
-            let roles: Vec<String> = session.get(SESSION_ROLES_KEY).await?.unwrap_or_default();
             Ok(Json(json!({
                 "authenticated": true,
                 "user": user,
-                "roles": roles,
             })))
         }
         None => Ok(Json(json!({ "authenticated": false }))),
     }
 }
 
-/// Extractor for admin endpoints: session + `admin`/`operator` role required.
-pub struct AuthAdmin(pub User, pub Vec<String>);
+/// Extractor for admin endpoints: logged-in user required.
+pub struct AuthAdmin(pub User);
 
 impl FromRequestParts<AppState> for AuthAdmin {
     type Rejection = AppError;
@@ -412,10 +305,6 @@ impl FromRequestParts<AppState> for AuthAdmin {
         let user_id: Option<Uuid> = session.get(SESSION_USER_KEY).await?;
         let user_id = user_id.ok_or(AppError::Unauthorized)?;
         let user = find_user(&state.pool, user_id).await?;
-        let roles: Vec<String> = session.get(SESSION_ROLES_KEY).await?.unwrap_or_default();
-        if !has_staff_role(&roles) {
-            return Err(AppError::Forbidden);
-        }
-        Ok(AuthAdmin(user, roles))
+        Ok(AuthAdmin(user))
     }
 }
