@@ -10,7 +10,7 @@ use uuid::Uuid;
 
 use crate::{
     api::{group_workspaces, load_tiers, load_workspace_dto, payment_to_dto, WORKSPACE_SELECT},
-    auth::{self, AdminAuth, AuthAdmin},
+    auth::{self, AdminAuth},
     error::AppError,
     models::{
         AdminStats, Locker, LockerInput, Payment, Settings, SettingsInput, WorkspaceCreateInput,
@@ -38,9 +38,6 @@ impl FromRequestParts<AppState> for AdminAuth {
         Ok(AdminAuth(user))
     }
 }
-
-/// Compat alias kept for call sites that still use the old name.
-pub use AdminAuth as AuthAdmin;
 
 #[derive(Debug, Deserialize)]
 pub struct ListPaymentsQuery {
