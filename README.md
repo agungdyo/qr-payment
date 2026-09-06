@@ -9,58 +9,95 @@ payment notification webhook confirms the booking.
 > **Not QRIS.** The QR code encodes a URL (payment link), not a payment string.
 > Money movement is bank transfer to a VA generated per transaction via MAJA.
 
+## Setup
+
+### 1. Copy environment files
+
+```bash
+# Backend
+cp .env.example .env
+
+# Frontend (if using real backend)
+cd frontend
+cp .env.example .env
+```
+
+### 2. Start infrastructure (Docker)
+
+```bash
+docker-compose up -d
+```
+
+This starts:
+- **PostgreSQL** (port 5434) — database
+- **Keycloak** (port 8083) — authentication
+- **pgAdmin** (port 5052) — optional database admin UI
+
+### 3. Start backend
+
+```bash
+cargo run
+```
+
+Backend runs on **http://localhost:3000**
+
+### 4. Start frontend
+
+```bash
+cd frontend
+npm install
+npm run dev
+```
+
+Frontend runs on **http://localhost:5173**
+
+### Default credentials
+
+**Keycloak admin:** `admin` / `admin` (http://localhost:8083/admin)
+
+**pgAdmin:** `admin@gmail.com` / `admin`
+
 ## Folder structure
 
 ```
 qr-payment/
 ├── README.md          ← you are here
 ├── .gitignore         (node_modules/, dist/, .env — applies to both apps)
+├── .env.example       Template for environment variables
+├── docker-compose.yml  Infrastructure (PostgreSQL, Keycloak, pgAdmin)
 ├── docs/
 │   ├── state-machine.md   Booking/payment machines + MAJA endpoint mapping
 │   └── qr-page-ux.md      QR payload spec + mobile payment page UX
-├── frontend/          ACTIVE prototype (customer + admin console)
+├── postgres-init/     SQL scripts run on first PostgreSQL start
+├── keycloak/          Realm import files
+├── frontend/          Customer + admin console (Vite + React)
 │   └── src/
-│       ├── pages/           customer: DemoHome, PaymentFlow; admin/* console
+│       ├── pages/           customer: Home, PaymentFlow; admin/* console
 │       ├── components/      flow components + admin shell/controls
 │       └── lib/             pricing, api (types/mock/store/client), machine
-└── demo-v1/           ARCHIVED early prototype (pre-admin), standalone Vite app
+└── src/              Backend (Rust + Axum)
 ```
 
-Two apps are kept deliberately separate — the archive is **not** nested inside
-`frontend/` anymore, so it cannot be confused with the live source or picked up
-by its build tooling.
-
-## Running the apps
-
-```bash
-# Active prototype (customer QR flow + /admin console) — http://localhost:5173
-cd frontend
-npm install
-npm run dev
-
-# Archived v1 prototype (early flow only) — run from its own folder
-cd ../demo-v1
-npm install      # node_modules already present; re-run only if needed
-npm run dev      # Vite picks the next free port (5174+) if 5173 is busy
-```
-
-### Routes (frontend)
+## Routes (frontend)
 
 | Route | Purpose |
 | :--- | :--- |
-| `/` | Demo home — lists active workspaces (simulates scanning a QR) |
+| `/` | Home — lists active workspaces (simulates scanning a QR) |
 | `/w/:code` | Customer payment flow (duration → VA → webhook → e-ticket) |
 | `/admin` | Admin dashboard (ringkasan, transaksi terakhir) |
 | `/admin/workspaces` + `/admin/workspaces/new` & `/:code` | Per-workspace settings: name, active toggle, **tarif per durasi** (1/3/8/24 jam) + hourly fallback |
 | `/admin/lockers` | Storage locker CRUD + availability |
 | `/admin/settings` | Venue name + **Wi-Fi SSID/password** update |
 
-The prototype runs on an in-browser **shared mock store** (localStorage,
-`qr-payment.db.v1`): admin edits (prices, deactivate a desk, Wi-Fi) are
-immediately visible on the customer payment page. Payment is simulated too —
-the "Demo → tandai lunas" pill stands in for the MAJA webhook. Point
-`VITE_API_BASE_URL` at a real backend to switch to HTTP (endpoints listed in
-`frontend/.env.example`).
+## Authentication
+
+Admin routes require login via **Keycloak OIDC**.
+
+Flow:
+1. Click "Buka dashboard admin" → checks auth status
+2. If not logged in → redirects to Keycloak login
+3. After login → session created, redirect to `/admin`
+4. Click "Logout" → clears session, returns to customer page
 
 ## Design overview (see docs/)
 
@@ -81,13 +118,6 @@ the "Demo → tandai lunas" pill stands in for the MAJA webhook. Point
 - MAJA API spec v2.2 (register, notification, inquiry, cancel): `../web-booking/docs/Maja.md`
 - Existing backend with booking + MAJA register/callback: `../web-booking`
 - Frontend with a VA display page: `../web-booking-view`
-
-## Git status
-
-This folder is **not yet under version control** (planned): initialize a repo
-here, commit both apps, and tag the archived v1 (`demo/v1.0`) so the early
-prototype stays recoverable. `node_modules/`, `dist/`, and `.env` are already
-ignored by the root `.gitignore`.
 
 ## Open items (confirm with MAJA team)
 

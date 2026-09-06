@@ -9,6 +9,7 @@ use axum::{
 };
 use base64::Engine;
 use openidconnect::{
+    OAuth2TokenResponse,
     core::{CoreClient, CoreProviderMetadata, CoreResponseType},
     reqwest, AuthenticationFlow, AuthorizationCode, ClientId, ClientSecret, CsrfToken,
     EndpointMaybeSet, EndpointNotSet, EndpointSet, IssuerUrl, Nonce, PkceCodeChallenge,
@@ -142,26 +143,49 @@ pub async fn start_login(oidc: &OidcClient) -> Result<AuthStart> {
     })
 }
 
-/// Decode the raw ID token JWT payload and extract `realm_access.roles`.
-fn extract_realm_roles(id_token: &str) -> Vec<String> {
-    let Some(payload_segment) = id_token.split('.').nth(1) else {
+/// Decode a JWT and extract roles from Keycloak's realm_access.roles or resource_access.
+fn extract_realm_roles(jwt: &str) -> Vec<String> {
+    let segments: Vec<&str> = jwt.split('.').collect();
+    if segments.len() < 2 {
         return Vec::new();
     };
-    let Ok(bytes) = base64::engine::general_purpose::URL_SAFE_NO_PAD.decode(payload_segment)
+    
+    let Ok(bytes) = base64::engine::general_purpose::URL_SAFE_NO_PAD.decode(segments[1])
     else {
         return Vec::new();
     };
+    
     let Ok(json) = serde_json::from_slice::<Value>(&bytes) else {
         return Vec::new();
     };
-    json.pointer("/realm_access/roles")
+    
+    // Try realm_access.roles first (for realm roles)
+    let mut roles: Vec<String> = json.pointer("/realm_access/roles")
         .and_then(|r| r.as_array())
-        .map(|arr| {
-            arr.iter()
-                .filter_map(|v| v.as_str().map(String::from))
-                .collect()
-        })
-        .unwrap_or_default()
+        .map(|arr| arr.iter().filter_map(|v| v.as_str().map(String::from)).collect())
+        .unwrap_or_default();
+    
+    // Also check resource_access.{client_id}.roles if present
+    if let Some(resource) = json.get("resource_access") {
+        if let Some(obj) = resource.as_object() {
+            for (_client_id, access) in obj {
+                if let Some(client_roles) = access.get("roles") {
+                    if let Some(arr) = client_roles.as_array() {
+                        for role in arr {
+                            if let Some(s) = role.as_str() {
+                                if !roles.contains(&s.to_string()) {
+                                    roles.push(s.to_string());
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+    
+    tracing::debug!("Extracted roles from JWT: {:?}", roles);
+    roles
 }
 
 pub fn has_staff_role(roles: &[String]) -> bool {
@@ -302,7 +326,9 @@ pub async fn callback(
         .map_err(|e| AppError::Internal(e.into()))?;
 
     // Login is restricted to `admin` and `operator` roles only.
-    let roles = extract_realm_roles(&raw_id_token);
+    // Get access token and extract roles from it (Keycloak includes roles in access token)
+    let access_token = token_response.access_token().secret().to_string();
+    let roles = extract_realm_roles(&access_token);
     if !has_staff_role(&roles) {
         tracing::warn!(
             username = ?claims.preferred_username().map(|u| u.as_str()),

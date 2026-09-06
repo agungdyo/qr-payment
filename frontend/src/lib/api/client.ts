@@ -2,10 +2,52 @@ import { ApiError, type AdminApi, type DemoApi, type PaymentApi } from './types'
 import { demoApi as mockDemoApi, mockAdminApi, mockApi } from './mock'
 
 /**
- * Transport selection:
- *  - no VITE_API_BASE_URL   → in-browser mock (default, for the prototype)
- *  - VITE_API_BASE_URL set  → real HTTP backend (endpoints in .env.example)
+ * Auth API functions (always calls real backend, not mock)
  */
+export interface AuthMeResponse {
+  authenticated: boolean
+  user?: {
+    id: string
+    username: string
+    name?: string
+    email?: string
+  }
+  roles?: string[]
+}
+
+export async function authMe(): Promise<AuthMeResponse> {
+  if (!API_BASE) {
+    // Demo mode: no real auth
+    return { authenticated: false }
+  }
+  try {
+    const res = await fetch(`${API_BASE}/auth/me`, {
+      credentials: 'include',
+    })
+    if (!res.ok) return { authenticated: false }
+    return (await res.json()) as AuthMeResponse
+  } catch {
+    return { authenticated: false }
+  }
+}
+
+export async function authLogout(): Promise<void> {
+  if (!API_BASE) return
+  await fetch(`${API_BASE}/auth/logout`, {
+    credentials: 'include',
+  })
+}
+
+export async function authLogin(): Promise<void> {
+  if (!API_BASE) return
+  window.location.href = `${API_BASE}/auth/login`
+}
+
+// --------------------------------------------------------------------------------
+// Transport selection:
+//  - no VITE_API_BASE_URL   → in-browser mock (default, for the prototype)
+//  - VITE_API_BASE_URL set  → real HTTP backend (endpoints in .env.example)
+// --------------------------------------------------------------------------------
 const API_BASE = (import.meta.env.VITE_API_BASE_URL as string | undefined)?.replace(
   /\/+$/,
   '',
@@ -32,6 +74,7 @@ function makeRequest(base: string) {
     try {
       res = await fetch(`${base}${path}`, {
         headers: { 'Content-Type': 'application/json' },
+        credentials: 'include', // Send cookies for session auth
         ...init,
       })
     } catch {

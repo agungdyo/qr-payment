@@ -96,7 +96,7 @@ pub async fn initiate_payment(
     let now = Utc::now();
     let code = booking_code();
     let end_at = now + Duration::hours(i64::from(body.hours));
-    let inactive = now + Duration::hours(24);
+    let inactive = now + Duration::minutes(10);
 
     let mut tx = state.pool.begin().await?;
     sqlx::query(

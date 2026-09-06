@@ -1,7 +1,9 @@
-import { Box, LayoutDashboard, Monitor, QrCode, Wifi } from 'lucide-react'
-import { Link, NavLink, Outlet } from 'react-router-dom'
+import { Box, LayoutDashboard, LogOut, Monitor, QrCode, Wifi } from 'lucide-react'
+import { Link, NavLink, Outlet, useNavigate } from 'react-router-dom'
+import { useEffect, useState } from 'react'
 
 import { cn } from '@/lib/cn'
+import { authLogout, authMe, type AuthMeResponse } from '@/lib/api/client'
 
 const NAV_ITEMS = [
   { to: '/admin', label: 'Ringkasan', icon: LayoutDashboard, end: true },
@@ -18,6 +20,28 @@ function navClass({ isActive }: { isActive: boolean }) {
 }
 
 export function AdminLayout() {
+  const navigate = useNavigate()
+  const [auth, setAuth] = useState<AuthMeResponse | null>(null)
+  const [loggingOut, setLoggingOut] = useState(false)
+
+  useEffect(() => {
+    authMe().then(setAuth)
+  }, [])
+
+  const handleLogout = async () => {
+    if (loggingOut) return
+    setLoggingOut(true)
+    try {
+      await authLogout()
+    } finally {
+      // Navigate to home page regardless of logout result
+      navigate('/')
+      setLoggingOut(false)
+    }
+  }
+
+  const userEmail = auth?.user?.email || auth?.user?.username || 'Admin'
+
   return (
     <div className="min-h-dvh bg-zinc-100">
       {/* Desktop sidebar */}
@@ -58,12 +82,25 @@ export function AdminLayout() {
               <p className="text-sm font-semibold">Admin</p>
             </div>
             <p className="hidden text-sm font-semibold lg:block">Dashboard Admin</p>
-            <Link
-              to="/"
-              className="rounded-lg border border-zinc-200 px-3 py-1.5 text-xs font-semibold text-zinc-600 hover:bg-zinc-50"
-            >
-              Halaman customer ↗
-            </Link>
+            <div className="flex items-center gap-3">
+              <Link
+                to="/"
+                className="hidden rounded-lg border border-zinc-200 px-3 py-1.5 text-xs font-semibold text-zinc-600 hover:bg-zinc-50 sm:block"
+              >
+                Halaman customer ↗
+              </Link>
+              <div className="flex items-center gap-2">
+                <span className="hidden text-xs text-zinc-500 sm:block">{userEmail}</span>
+                <button
+                  onClick={handleLogout}
+                  disabled={loggingOut}
+                  className="flex items-center gap-1.5 rounded-lg border border-zinc-200 px-3 py-1.5 text-xs font-semibold text-zinc-600 hover:bg-zinc-50 disabled:opacity-50"
+                >
+                  <LogOut className="h-3.5 w-3.5" aria-hidden />
+                  {loggingOut ? 'Logging out...' : 'Logout'}
+                </button>
+              </div>
+            </div>
           </div>
           {/* Mobile nav */}
           <nav className="flex gap-1 overflow-x-auto px-2 pb-2 lg:hidden">
