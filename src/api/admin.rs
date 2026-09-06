@@ -48,7 +48,7 @@ pub struct ListPaymentsQuery {
 }
 
 /// GET /api/v1/admin/stats
-pub async fn    stats(
+pub async fn stats(
     State(state): State<AppState>,
     _auth: AdminAuth,
 ) -> Result<Json<AdminStats>, AppError> {
