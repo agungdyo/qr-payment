@@ -290,21 +290,4 @@ pub async fn me(
 }
 
 /// Extractor for admin endpoints: logged-in user required.
-pub struct AuthAdmin(pub User);
-
-impl FromRequestParts<AppState> for AuthAdmin {
-    type Rejection = AppError;
-
-    async fn from_request_parts(
-        parts: &mut Parts,
-        state: &AppState,
-    ) -> Result<Self, Self::Rejection> {
-        let session = Session::from_request_parts(parts, state)
-            .await
-            .map_err(|_| AppError::Unauthorized)?;
-        let user_id: Option<Uuid> = session.get(SESSION_USER_KEY).await?;
-        let user_id = user_id.ok_or(AppError::Unauthorized)?;
-        let user = find_user(&state.pool, user_id).await?;
-        Ok(AuthAdmin(user))
-    }
-}
+/// Definisinya ada di `api::admin::AdminAuth`. Alias `AuthAdmin` tersedia di sana.
