@@ -2,18 +2,18 @@ use std::sync::Arc;
 
 use anyhow::Result;
 use axum::{
-    extract::{FromRequestParts, Query},
-    http::request::Parts,
+    extract::Query,
+    
     response::Redirect,
     Json,
 };
 use openidconnect::{
-    core::{CoreClient, CoreProviderMetadata, CoreResponseType},
+    core::{CoreClient, CoreProviderMetadata, CoreIdTokenClaims, CoreResponseType},
     reqwest, AuthenticationFlow, AuthorizationCode, ClientId, ClientSecret, CsrfToken,
     EndpointMaybeSet, EndpointNotSet, EndpointSet, IssuerUrl, Nonce, PkceCodeChallenge,
     PkceCodeVerifier, RedirectUrl, Scope,
 };
-use serde_json::json;
+use serde_json::{json, Value};
 use tokio::sync::OnceCell;
 use tower_sessions::Session;
 use url::Url;
@@ -181,10 +181,30 @@ pub async fn find_user(pool: &sqlx::PgPool, user_id: Uuid) -> Result<User, AppEr
 }
 
 /// Query parameters on the OIDC callback.
+///
+/// `code` and `state` are optional because Keycloak sometimes redirects back
+/// without an authorization code: the user cancelled login (`error=access_denied`),
+/// or a second login flow was started on the same browser while the first one was
+/// still active and Keycloak bounced it back with `error=already_logged_in` without
+/// re-issuing a code. Those are normal flow outcomes, not protocol errors.
 #[derive(serde::Deserialize)]
 pub struct CallbackParams {
-    pub code: String,
-    pub state: String,
+    pub code: Option<String>,
+    pub state: Option<String>,
+    pub error: Option<String>,
+}
+
+/// Remove the in-flight OIDC flow secrets (CSRF/nonce/PKCE verifier) from the session.
+async fn clear_oidc_flow(session: &Session) -> Result<(), tower_sessions::session::Error> {
+    session.remove::<String>(SESSION_CSRF_KEY).await?;
+    session.remove::<String>(SESSION_NONCE_KEY).await?;
+    session.remove::<String>(SESSION_VERIFIER_KEY).await?;
+    Ok(())
+}
+
+/// Bounce the browser back to the frontend after a failed or cancelled login flow.
+fn login_failed_redirect(app_url: &str) -> Redirect {
+    Redirect::to(&format!("{app_url}/?error=login_failed"))
 }
 
 /// Constant-time string comparison for the OIDC `state` secret.
@@ -224,9 +244,37 @@ pub async fn callback(
         .get(SESSION_CSRF_KEY)
         .await?
         .ok_or_else(|| AppError::bad_request("no login attempt in progress"))?;
-    if !ct_eq(&params.state, &expected_csrf) {
-        return Err(AppError::bad_request("state mismatch"));
+
+    // Keycloak can redirect back without a `code` — e.g. the user cancelled the
+    // login, or a second concurrent login flow was bounced with `error=already_logged_in`.
+    // Treat that as a cancelled flow: clean up and send the user home to retry,
+    // instead of failing with a raw deserialization error.
+    let code = match params.code {
+        Some(code) => code,
+        None => {
+            tracing::warn!(
+                error = ?params.error,
+                "OIDC callback received no authorization code; redirecting to frontend"
+            );
+            clear_oidc_flow(&session).await?;
+            return Ok(login_failed_redirect(&state.config.app_url));
+        }
+    };
+
+    match params.state {
+        Some(state_param) if ct_eq(&state_param, &expected_csrf) => {}
+        Some(_) => {
+            tracing::warn!("OIDC callback state mismatch; redirecting to frontend");
+            clear_oidc_flow(&session).await?;
+            return Ok(login_failed_redirect(&state.config.app_url));
+        }
+        None => {
+            tracing::warn!("OIDC callback missing state parameter; redirecting to frontend");
+            clear_oidc_flow(&session).await?;
+            return Ok(login_failed_redirect(&state.config.app_url));
+        }
     }
+
     let nonce: String = session
         .get(SESSION_NONCE_KEY)
         .await?
@@ -237,13 +285,30 @@ pub async fn callback(
         .ok_or_else(|| AppError::bad_request("missing pkce verifier"))?;
 
     let client = state.oidc.client().await.map_err(AppError::Internal)?;
-    let token_response = client
-        .exchange_code(AuthorizationCode::new(params.code))
-        .map_err(|e| AppError::Internal(e.into()))?
-        .set_pkce_verifier(PkceCodeVerifier::new(verifier))
-        .request_async(state.oidc.http())
-        .await
-        .map_err(|e| AppError::Internal(e.into()))?;
+    // A replayed or expired code (e.g. the browser re-submitted the callback URL)
+    // fails the exchange — that is a flow-level failure, so send the user back to
+    // retry instead of surfacing a 500.
+    let token_response = match client.exchange_code(AuthorizationCode::new(code)) {
+        Ok(request) => {
+            match request
+                .set_pkce_verifier(PkceCodeVerifier::new(verifier))
+                .request_async(state.oidc.http())
+                .await
+            {
+                Ok(resp) => resp,
+                Err(e) => {
+                    tracing::warn!(error = ?e, "OIDC token exchange failed; redirecting to frontend");
+                    clear_oidc_flow(&session).await?;
+                    return Ok(login_failed_redirect(&state.config.app_url));
+                }
+            }
+        }
+        Err(e) => {
+            tracing::warn!(error = ?e, "OIDC token request build failed; redirecting to frontend");
+            clear_oidc_flow(&session).await?;
+            return Ok(login_failed_redirect(&state.config.app_url));
+        }
+    };
     let id_token = token_response
         .extra_fields()
         .id_token()
@@ -254,9 +319,7 @@ pub async fn callback(
 
     let user = upsert_user(&state.pool, claims).await?;
     session.insert(SESSION_USER_KEY, user.id).await?;
-    session.remove::<String>(SESSION_CSRF_KEY).await?;
-    session.remove::<String>(SESSION_NONCE_KEY).await?;
-    session.remove::<String>(SESSION_VERIFIER_KEY).await?;
+    clear_oidc_flow(&session).await?;
     session.save().await?;
 
     Ok(Redirect::to(&format!("{}/admin", state.config.app_url)))
@@ -289,5 +352,3 @@ pub async fn me(
     }
 }
 
-/// Extractor for admin endpoints: logged-in user required.
-/// Definisinya ada di `api::admin::AdminAuth`. Alias `AuthAdmin` tersedia di sana.

@@ -33,12 +33,12 @@
 
 ### BE-001 — Scaffold & infra
 - [x] `Cargo.toml`, `src/` (axum 0.8, sqlx 0.8, openidconnect 4.0, tower-sessions 0.14)
-- [x] `docker-compose.yml`: PostgreSQL 16 (`:5433`), Keycloak 26 (`:8082`), pgAdmin (`:5052`) — port non-konflik dengan stack lain
-- [x] `keycloak/realm-export.json` + `pgadmin/servers.json`
+- [x] `docker-compose.yml`: PostgreSQL 16 (`:5434`), pgAdmin (`:5052`) — tanpa Keycloak lokal
+- [x] `pgadmin/servers.json` (+ `keycloak/realm-export.json` legacy, tidak dipakai)
 
-### BE-002 — Realm Keycloak `qr-payment`
-- [x] Client confidential `qr-payment` (PKCE S256, redirect `{BASE_URL}/auth/callback`, `post.logout.redirect.uris` → frontend)
-- [x] Demo user: `admin/admin123`, `operator/operator123`, `customer/customer123`
+### BE-002 — Realm Keycloak `maja` (hosted)
+- [x] Keycloak hosted MAJA: `https://account.maja.id/auth/realms/maja` (Admin Console: `https://account.maja.id/auth/admin/master/console/`)
+- [x] Client confidential `qr-payment` (PKCE S256, redirect `{BASE_URL}/auth/callback`, `post.logout.redirect.uris` → frontend) dibuat di realm `maja`
 
 ### BE-003 — Auth (Keycloak OIDC)
 - [x] `GET /auth/login` — authorize URL + PKCE/state/nonce
@@ -151,18 +151,20 @@
 ## Cara menjalankan (dev)
 
 ```bash
-# 1. Infra (Postgres 5433, Keycloak 8082, pgAdmin 5052)
+# 1. Infra (Postgres 5434, pgAdmin 5052) — tanpa Keycloak lokal
 cd qr-payment && docker compose up -d
 
 # 2. Backend
-cp .env.example .env        # isi MAJA_* bila sudah punya kredensial
+cp .env.example .env        # isi OIDC_CLIENT_SECRET + MAJA_* dari admin
 cargo run                   # http://localhost:3000
 
 # 3. Frontend
 cd frontend && npm install && npm run dev   # http://localhost:5173
 ```
 
-Login admin: `admin/admin123` · operator: `operator123` · Keycloak console: `http://localhost:8082` (admin/admin).
+Login memakai Keycloak hosted MAJA (realm `maja`): buka dashboard admin → redirect ke `account.maja.id` → login dengan akun user realm `maja` (mis. akun MAJA tenant).
+
+> Catatan: client OIDC `qr-payment` (confidential, redirect `http://localhost:3000/auth/callback`) dibuat di realm `maja` — kelola di Admin Console `https://account.maja.id/auth/admin/master/console/` → realm `maja` → Clients.
 
 ---
 

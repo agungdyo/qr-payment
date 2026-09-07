@@ -1,0 +1,60 @@
+You are debugging a React 19 + react-router-dom v7 frontend in the `frontend/`
+folder of this repo (QR Payment / coworking booking app). Backend (Rust/Axum) is
+confirmed OK — do NOT modify anything under `src/` (Rust) or migrations.
+
+## Bug report
+- Logged-in admin visits `http://localhost:5173/admin/workspaces/new` (clicking
+  the "Tambah" button on `/admin/workspaces`).
+- The page shows an endless "Memuat workspace…" spinner. The create-workspace
+  input form NEVER renders.
+- Other admin pages work fine: `/admin/workspaces` list, edit at
+  `/admin/workspaces/<code>`, `/admin/lockers`, `/admin/settings`.
+
+## Where to look (read these files first)
+1. `frontend/src/App.tsx` — route table. Note there are TWO routes that render
+   the same component:
+     <Route path="workspaces/new" element={<WorkspaceFormPage />} />
+     <Route path="workspaces/:workspaceCode" element={<WorkspaceFormPage />} />
+2. `frontend/src/pages/admin/WorkspaceFormPage.tsx` — the page component. Pay
+   attention to how it decides "new vs edit", the initial `loading` state, and
+   the `useEffect` that fetches the workspace list when editing.
+
+## Key facts to reason about (do not skip)
+- In React Router v7, for `/admin/workspaces/new` the STATIC segment `new`
+  outranks the dynamic `:workspaceCode`, so the URL matches the
+  `workspaces/new` route, which declares NO `:workspaceCode` param.
+- Consequence: inside WorkspaceFormPage, `useParams()` returns `{}`, so
+  `workspaceCode` is `undefined` for this URL (it is NOT the string `"new"`).
+- Trace what happens with `workspaceCode === undefined`:
+  * how is `isNew` computed?
+  * how is the initial `loading` state computed?
+  * in the `useEffect`, does the early `return` happen BEFORE the fetch's
+    `.finally()` that would call `setLoading(false)`?
+  * Therefore: does `loading` ever become false? That is why the spinner never
+    goes away and the form never renders.
+- Explain the bug in your own words in 2–4 sentences BEFORE changing any code.
+
+## Task
+1. Apply the MINIMAL fix so that visiting `/admin/workspaces/new` shows the
+   empty "Tambah Meja / Ruangan" form (code field enabled) and saving calls the
+   CREATE path (`createWorkspace`, POST /api/v1/admin/workspaces with code in
+   the body).
+2. Do NOT break the EDIT flow: `/admin/workspaces/meja-01` must still load the
+   existing workspace, show the disabled code field, and call the UPDATE path.
+   Do not remove or reorder routes unless you can justify why it's safe.
+3. Run `cd frontend && npm run build` and make sure TypeScript + Vite build
+   cleanly.
+4. Manual check (if backend is running): create one workspace at
+   /admin/workspaces/new and confirm it appears in the list; also open the edit
+   page of an existing workspace and confirm it still loads.
+
+## Acceptance criteria
+- /admin/workspaces/new renders the input form immediately (no infinite spinner).
+- Saving creates a workspace (POST endpoint receives it; row appears in DB/list).
+- /admin/workspaces/<existing-code> still renders the pre-filled edit form.
+- No TypeScript errors; `npm run build` succeeds.
+
+## Report back
+- Root cause in your own words.
+- Exact diff of what you changed and why each change is needed.
+- Proof of verification (build output, and any manual test you performed).

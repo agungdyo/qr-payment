@@ -10,7 +10,7 @@ use uuid::Uuid;
 
 use crate::{
     api::{group_workspaces, load_tiers, load_workspace_dto, payment_to_dto, WORKSPACE_SELECT},
-    auth::{self, AdminAuth},
+    auth::self,
     error::AppError,
     models::{
         AdminStats, Locker, LockerInput, Payment, Settings, SettingsInput, WorkspaceCreateInput,
@@ -20,7 +20,7 @@ use crate::{
 };
 
 /// Extractor for admin endpoints: logged-in user required.
-pub struct AdminAuth(pub auth::User);
+pub struct AdminAuth(pub crate::models::User);
 
 impl FromRequestParts<AppState> for AdminAuth {
     type Rejection = AppError;

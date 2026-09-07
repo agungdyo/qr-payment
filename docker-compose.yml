@@ -17,27 +17,6 @@ services:
       timeout: 3s
       retries: 10
 
-  keycloak:
-    image: quay.io/keycloak/keycloak:26.1
-    container_name: qr-payment-keycloak
-    command: ["start-dev", "--import-realm"]
-    environment:
-      KC_BOOTSTRAP_ADMIN_USERNAME: admin
-      KC_BOOTSTRAP_ADMIN_PASSWORD: admin
-      KC_DB: postgres
-      KC_DB_URL: jdbc:postgresql://postgres:5432/keycloak
-      KC_DB_USERNAME: qrpayment
-      KC_DB_PASSWORD: qrpayment
-      KC_DB_SCHEMA: public
-      KC_HOSTNAME: localhost
-    ports:
-      - "8083:8080"
-    volumes:
-      - ./keycloak:/opt/keycloak/data/import:ro
-    depends_on:
-      postgres:
-        condition: service_healthy
-
   pgadmin:
     image: dpage/pgadmin4:latest
     container_name: qr-payment-pgadmin

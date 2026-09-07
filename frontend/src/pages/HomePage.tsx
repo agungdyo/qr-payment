@@ -8,7 +8,7 @@ import {
   Settings2,
   Users,
 } from 'lucide-react'
-import { Link, useNavigate } from 'react-router-dom'
+import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 
 import { PhoneShell } from '@/components/PhoneShell'
 import { api, authLogin, authMe } from '@/lib/api/client'
@@ -25,6 +25,8 @@ function TypeIcon({ workspace }: { workspace: Workspace }) {
 
 export function HomePage() {
   const navigate = useNavigate()
+  const [searchParams] = useSearchParams()
+  const loginFailed = searchParams.get('error') === 'login_failed'
   const [workspaces, setWorkspaces] = useState<Workspace[] | null>(null)
 
   useEffect(() => {
@@ -89,6 +91,13 @@ export function HomePage() {
           Buka dashboard admin 
         </button>
       </header>
+
+      {loginFailed && (
+        <div className="mx-5 mt-4 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-xs font-medium leading-relaxed text-amber-800">
+          Login tidak selesai — sesi Keycloak mungkin masih aktif atau alur login
+          dibatalkan. Silakan coba lagi.
+        </div>
+      )}
 
       {/* Workspace list */}
       <section className="flex-1 px-5 py-6">

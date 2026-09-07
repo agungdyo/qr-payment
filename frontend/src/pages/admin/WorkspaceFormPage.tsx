@@ -49,7 +49,9 @@ function fromWorkspace(workspace: Workspace): FormState {
 
 export function WorkspaceFormPage() {
   const { workspaceCode } = useParams()
-  const isNew = workspaceCode === 'new'
+  // `/admin/workspaces/new` matches the static route (no `:workspaceCode`
+  // param), so a missing param means the "Tambah" (create) form as well.
+  const isNew = !workspaceCode || workspaceCode === 'new'
   const navigate = useNavigate()
 
   const [form, setForm] = useState<FormState>(emptyForm)
@@ -58,7 +60,7 @@ export function WorkspaceFormPage() {
   const [loaded, setLoaded] = useState(false)
 
   useEffect(() => {
-    if (isNew || !workspaceCode) return
+    if (!workspaceCode) return
     let alive = true
     adminApi
       .listWorkspaces()
@@ -82,7 +84,7 @@ export function WorkspaceFormPage() {
     return () => {
       alive = false
     }
-  }, [isNew, workspaceCode, navigate])
+  }, [workspaceCode, navigate])
 
   const patch = (partial: Partial<FormState>) =>
     setForm((prev) => ({ ...prev, ...partial }))
