@@ -1,9 +1,9 @@
 import { Box, LayoutDashboard, LogOut, Monitor, QrCode, Wifi } from 'lucide-react'
-import { Link, NavLink, Outlet, useNavigate } from 'react-router-dom'
+import { Link, NavLink, Outlet } from 'react-router-dom'
 import { useEffect, useState } from 'react'
+import { authMe, type AuthMeResponse } from '@/lib/api/client'
 
 import { cn } from '@/lib/cn'
-import { authLogout, authMe, type AuthMeResponse } from '@/lib/api/client'
 
 const NAV_ITEMS = [
   { to: '/admin', label: 'Ringkasan', icon: LayoutDashboard, end: true },
@@ -20,27 +20,19 @@ function navClass({ isActive }: { isActive: boolean }) {
 }
 
 export function AdminLayout() {
-  const navigate = useNavigate()
-  const [auth, setAuth] = useState<AuthMeResponse | null>(null)
   const [loggingOut, setLoggingOut] = useState(false)
+  const [auth, setAuth] = useState<AuthMeResponse | null>(null)
 
   useEffect(() => {
-    authMe().then(setAuth)
+    authMe().then(setAuth).catch(() => setAuth(null))
   }, [])
 
-  const handleLogout = async () => {
+  const handleLogout = () => {
     if (loggingOut) return
     setLoggingOut(true)
-    try {
-      await authLogout()
-    } finally {
-      // Navigate to home page regardless of logout result
-      navigate('/')
-      setLoggingOut(false)
-    }
+    // Redirect langsung ke backend logout - browser akan follow redirect ke Keycloak
+    window.location.href = '/auth/logout'
   }
-
-  const userEmail = auth?.user?.email || auth?.user?.username || 'Admin'
 
   return (
     <div className="min-h-dvh bg-zinc-100">
@@ -74,6 +66,7 @@ export function AdminLayout() {
       {/* Main column */}
       <div className="flex min-h-dvh flex-col lg:pl-60">
         <header className="sticky top-0 z-30 border-b border-zinc-200 bg-white/95 backdrop-blur">
+          {/* Desktop header */}
           <div className="flex h-14 items-center justify-between gap-3 px-4 lg:px-8">
             <div className="flex items-center gap-2 lg:hidden">
               <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-zinc-900 text-white">
@@ -89,8 +82,10 @@ export function AdminLayout() {
               >
                 Halaman customer ↗
               </Link>
-              <div className="flex items-center gap-2">
-                <span className="hidden text-xs text-zinc-500 sm:block">{userEmail}</span>
+              <div className="hidden items-center gap-2 sm:flex">
+                <span className="text-xs font-medium text-zinc-600">
+                  {auth?.user?.name || auth?.user?.username || 'Admin'}
+                </span>
                 <button
                   onClick={handleLogout}
                   disabled={loggingOut}

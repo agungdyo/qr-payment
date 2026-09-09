@@ -23,6 +23,10 @@ export async function authMe(): Promise<AuthMeResponse> {
     const res = await fetch(`${API_BASE}/auth/me`, {
       credentials: 'include',
     })
+    // Handle 401 Unauthorized explicitly
+    if (res.status === 401) {
+      return { authenticated: false }
+    }
     if (!res.ok) return { authenticated: false }
     return (await res.json()) as AuthMeResponse
   } catch {

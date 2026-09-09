@@ -53,7 +53,12 @@ async fn main() -> Result<()> {
         .with_name(config.session_cookie_name.clone())
         .with_secure(config.session_secure)
         .with_same_site(SameSite::Lax)
-        .with_expiry(Expiry::OnInactivity(time::Duration::days(7)));
+        // The session must outlive the OIDC login round-trip (user spends time on
+        // the Keycloak page), and the admin session must not die after seconds of
+        // idle. 30s here made login fail whenever the user took >30s at Keycloak
+        // (the store refuses sessions past `expiry_date`), and logged admins out
+        // while they were simply reading the dashboard.
+        .with_expiry(Expiry::OnInactivity(time::Duration::seconds(8 * 60 * 60)));
 
     let state = AppState {
         pool,

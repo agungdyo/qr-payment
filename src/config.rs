@@ -37,7 +37,7 @@ impl Config {
                 .unwrap_or(3000),
             base_url: std::env::var("BASE_URL")
                 .unwrap_or_else(|_| "http://localhost:3000".to_string()),
-            app_url: std::env::var("APP_URL").unwrap_or_else(|_| "http://localhost:5173".to_string()),
+            app_url: std::env::var("APP_URL").unwrap_or_else(|_| "http://localhost:3000".to_string()),
             oidc_issuer_url: env("OIDC_ISSUER_URL")?,
             oidc_client_id: env("OIDC_CLIENT_ID")?,
             oidc_client_secret: env("OIDC_CLIENT_SECRET")?,

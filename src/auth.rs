@@ -316,6 +316,100 @@ pub async fn callback(
     let claims = id_token
         .claims(&client.id_token_verifier(), &Nonce::new(nonce))
         .map_err(|e| AppError::Internal(e.into()))?;
+    // ============================================================
+    // DEBUG: Print all ID Token claims to see token structure
+    // ============================================================
+    println!("\n============================================================");
+    println!("DEBUG: ID Token Claims dari Keycloak");
+    println!("============================================================");
+    println!("Subject (sub):        {}", claims.subject().as_str());
+    println!("Issuer:              {}", claims.issuer().as_str());
+    println!("Audience:            {:?}", claims.audiences());
+    println!("Preferred Username:  {:?}", claims.preferred_username().map(|u| u.as_str()));
+    println!("Email:               {:?}", claims.email().map(|e| e.as_str()));
+    println!("Name:                {:?}", claims.name().and_then(|n| n.get(None)).map(|s| s.as_str()));
+    println!("============================================================");
+    
+    // Decode raw JWT payload untuk melihat semua claims termasuk roles
+    use base64::Engine;
+    let id_token_str = id_token.to_string();
+    let parts: Vec<&str> = id_token_str.split('.').collect();
+    if parts.len() == 3 {
+        if let Ok(payload_bytes) = base64::engine::general_purpose::URL_SAFE_NO_PAD.decode(parts[1]) {
+            if let Ok(payload_json) = String::from_utf8(payload_bytes) {
+                println!("\nDEBUG: RAW JWT Payload (semua claims termasuk roles):");
+                println!("------------------------------------------------------------");
+                // Pretty print JSON
+                if let Ok(formatted) = serde_json::from_str::<serde_json::Value>(&payload_json) {
+                    println!("{}", serde_json::to_string_pretty(&formatted).unwrap_or_default());
+                } else {
+                    println!("{}", payload_json);
+                }
+                println!("------------------------------------------------------------\n");
+                
+                // ============================================================
+                // VALIDASI ROLE: Cek apakah user punya role "admin"
+                // Roles ada di: resource_access.{client_id}.roles ATAU realm_access.roles
+                // ============================================================
+                if let Ok(payload) = serde_json::from_str::<serde_json::Value>(&payload_json) {
+                    let client_id = &state.config.oidc_client_id;
+                    let mut has_admin_role = false;
+                    
+                    println!("============================================================");
+                    println!("ROLE VALIDATION START");
+                    println!("============================================================");
+                    
+                    // Cek di resource_access.{client_id}.roles (prioritas utama)
+                    if let Some(resource_access) = payload.get("resource_access").and_then(|ra| ra.get(client_id)) {
+                        if let Some(roles) = resource_access.get("roles").and_then(|r| r.as_array()) {
+                            let roles_str: Vec<&str> = roles.iter().filter_map(|r| r.as_str()).collect();
+                            println!("resource_access.{}.roles = {:?}", client_id, roles_str);
+                            
+                            if roles_str.contains(&"admin") {
+                                has_admin_role = true;
+                            }
+                        }
+                    }
+                    
+                    // Fallback: cek di realm_access.roles
+                    if !has_admin_role {
+                        if let Some(realm_access) = payload.get("realm_access") {
+                            if let Some(roles) = realm_access.get("roles").and_then(|r| r.as_array()) {
+                                let roles_str: Vec<&str> = roles.iter().filter_map(|r| r.as_str()).collect();
+                                println!("realm_access.roles = {:?}", roles_str);
+                                
+                                if roles_str.contains(&"admin") {
+                                    has_admin_role = true;
+                                }
+                            }
+                        }
+                    }
+                    
+                    println!("Final has_admin_role = {}", has_admin_role);
+                    println!("============================================================");
+                    
+                    // JIKA TIDAK ADA ROLE ADMIN SAMA SEKALI → DENY
+                    if !has_admin_role {
+                        println!(" ❌ ACCESS DENIED!");
+                        println!(" User tidak memiliki role 'admin' di resource_access atau realm_access");
+                        println!(" Redirecting to: {}/auth/login", state.config.app_url);
+                        session.remove::<Uuid>(SESSION_USER_KEY).await?;
+                        clear_oidc_flow(&session).await?;
+                        return Ok(Redirect::to(&format!("{}/login?error=unauthorized", state.config.app_url)));
+                    }
+                    
+                    println!("✅ ACCESS GRANTED - User memiliki role admin");
+                }
+                // ============================================================
+
+
+                println!("------------------------------------------------------------\n");
+            }
+        }
+    }
+    // ============================================================
+
+
 
     let user = upsert_user(&state.pool, claims).await?;
     session.insert(SESSION_USER_KEY, user.id).await?;
@@ -325,14 +419,24 @@ pub async fn callback(
     Ok(Redirect::to(&format!("{}/admin", state.config.app_url)))
 }
 
-/// GET /auth/logout — destroy the app session and return to the frontend.
 pub async fn logout(
     axum::extract::State(state): axum::extract::State<AppState>,
     session: Session,
 ) -> Redirect {
+    
     let _ = session.flush().await;
-    Redirect::to(&format!("{}/login", state.config.app_url))
+    
+    
+    let keycloak_logout_url = format!(
+        "{}/protocol/openid-connect/logout?redirect_uri={}/",
+        state.config.oidc_issuer_url,  // https://account.maja.id/auth/realms/maja
+        state.config.app_url           // http://localhost:3000
+    );
+    
+    tracing::info!("Logging out, redirecting to Keycloak");
+    Redirect::to(&keycloak_logout_url)
 }
+
 
 /// GET /auth/me — current session user (frontend `/admin` guard probe).
 pub async fn me(
