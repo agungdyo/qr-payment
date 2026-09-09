@@ -11,7 +11,7 @@ use openidconnect::{
     core::{CoreClient, CoreProviderMetadata, CoreIdTokenClaims, CoreResponseType},
     reqwest, AuthenticationFlow, AuthorizationCode, ClientId, ClientSecret, CsrfToken,
     EndpointMaybeSet, EndpointNotSet, EndpointSet, IssuerUrl, Nonce, PkceCodeChallenge,
-    PkceCodeVerifier, RedirectUrl, Scope,
+    PkceCodeVerifier, RedirectUrl, Scope, OAuth2TokenResponse,
 };
 use serde_json::{json, Value};
 use tokio::sync::OnceCell;
@@ -313,6 +313,15 @@ pub async fn callback(
         .extra_fields()
         .id_token()
         .ok_or_else(|| AppError::bad_request("server did not return an ID token"))?;
+    
+    // Get refresh_token for logout
+    let refresh_token = token_response
+        .refresh_token()
+        .map(|rt| rt.secret().to_string());
+    
+    // Get id_token string for logout
+    let id_token_str = id_token.to_string();
+    
     let claims = id_token
         .claims(&client.id_token_verifier(), &Nonce::new(nonce))
         .map_err(|e| AppError::Internal(e.into()))?;
@@ -370,32 +379,44 @@ pub async fn callback(
                             }
                         }
                     }
-                    
-                    // Fallback: cek di realm_access.roles
-                    if !has_admin_role {
-                        if let Some(realm_access) = payload.get("realm_access") {
-                            if let Some(roles) = realm_access.get("roles").and_then(|r| r.as_array()) {
-                                let roles_str: Vec<&str> = roles.iter().filter_map(|r| r.as_str()).collect();
-                                println!("realm_access.roles = {:?}", roles_str);
-                                
-                                if roles_str.contains(&"admin") {
-                                    has_admin_role = true;
-                                }
-                            }
-                        }
-                    }
-                    
+                                        
                     println!("Final has_admin_role = {}", has_admin_role);
                     println!("============================================================");
                     
                     // JIKA TIDAK ADA ROLE ADMIN SAMA SEKALI → DENY
                     if !has_admin_role {
-                        println!(" ❌ ACCESS DENIED!");
-                        println!(" User tidak memiliki role 'admin' di resource_access atau realm_access");
-                        println!(" Redirecting to: {}/auth/login", state.config.app_url);
-                        session.remove::<Uuid>(SESSION_USER_KEY).await?;
+
+                        println!(" ❌ ACCESS DENIED - User tanpa role admin");
+                        
+                        // Flush session
+                        let _ = session.flush().await;
+                        
+                        // Build Keycloak logout URL with all params
+                        let mut keycloak_logout_url = format!(
+                            "{}/protocol/openid-connect/logout?id_token_hint={}&client_id={}",
+                            state.config.oidc_issuer_url,
+                            id_token_str,
+                            state.config.oidc_client_id
+                        );
+                        
+                        // Add client_secret
+                        keycloak_logout_url.push_str(&format!("&client_secret={}", state.config.oidc_client_secret));
+                        
+                        // Add refresh_token if available
+                        if let Some(ref rt) = refresh_token {
+                            keycloak_logout_url.push_str(&format!("&refresh_token={}", rt));
+                        }
+                        
+                        // Add post_logout_redirect_uri
+                        keycloak_logout_url.push_str(&format!("&post_logout_redirect_uri={}/", state.config.app_url));
+                        
+                        println!(" 🔍 Keycloak logout URL: {}", keycloak_logout_url);
+                        
+                        // Clear OIDC flow
                         clear_oidc_flow(&session).await?;
-                        return Ok(Redirect::to(&format!("{}/login?error=unauthorized", state.config.app_url)));
+                        
+                        // Redirect to Keycloak logout
+                        return Ok(Redirect::to(&keycloak_logout_url));
                     }
                     
                     println!("✅ ACCESS GRANTED - User memiliki role admin");
@@ -413,6 +434,12 @@ pub async fn callback(
 
     let user = upsert_user(&state.pool, claims).await?;
     session.insert(SESSION_USER_KEY, user.id).await?;
+    
+    // Store tokens for logout
+    session.insert("id_token", id_token_str).await?;
+    if let Some(ref rt) = refresh_token {
+        session.insert("refresh_token", rt).await?;
+    }
     clear_oidc_flow(&session).await?;
     session.save().await?;
 
@@ -424,16 +451,23 @@ pub async fn logout(
     session: Session,
 ) -> Redirect {
     
+    // Get tokens from session for Keycloak logout
+    let id_token: Option<String> = session.get("id_token").await.ok().flatten();
+    let refresh_token: Option<String> = session.get("refresh_token").await.ok().flatten();
+    
+    // Flush app session
     let _ = session.flush().await;
     
-    
+    // Build Keycloak logout URL with tokens
     let keycloak_logout_url = format!(
-        "{}/protocol/openid-connect/logout?redirect_uri={}/",
-        state.config.oidc_issuer_url,  // https://account.maja.id/auth/realms/maja
-        state.config.app_url           // http://localhost:3000
+        "{}/protocol/openid-connect/logout?id_token_hint={}&client_id={}&post_logout_redirect_uri={}/",
+        state.config.oidc_issuer_url,
+        id_token.unwrap_or_default(),
+        state.config.oidc_client_id,
+        state.config.app_url
     );
     
-    tracing::info!("Logging out, redirecting to Keycloak");
+    tracing::info!("Logging out user from Keycloak");
     Redirect::to(&keycloak_logout_url)
 }
 

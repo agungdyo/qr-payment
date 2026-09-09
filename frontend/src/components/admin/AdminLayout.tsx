@@ -82,7 +82,7 @@ export function AdminLayout() {
               >
                 Halaman customer ↗
               </Link>
-              <div className="hidden items-center gap-2 sm:flex">
+              <div className="flex items-center gap-2">
                 <span className="text-xs font-medium text-zinc-600">
                   {auth?.user?.name || auth?.user?.username || 'Admin'}
                 </span>
