@@ -74,7 +74,7 @@ export function HomePage() {
             <p className="text-xs font-medium uppercase tracking-wider text-zinc-400">
               Booking App            
             </p>
-            <h1 className="text-lg font-semibold">UIPay x UIWorks Coworking Space </h1>
+            <h1 className="text-lg font-semibold">UIWorks Coworking Space </h1>
           </div>
         </div>
         <p className="mt-4 text-sm leading-relaxed text-zinc-300">

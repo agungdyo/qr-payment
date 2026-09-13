@@ -2,15 +2,15 @@ import type { Locker, VenueSettings, Workspace } from './api/types'
 
 /** Seed data for the shared demo store (workspaces, lockers, venue settings). */
 
-const VENUE_NAME = 'Maja Coworking Senopati'
+const VENUE_NAME = 'Maja Coworking Mezanine'
 
 export const seedWorkspaces: Workspace[] = [
   {
-    code: 'meja-12',
-    name: 'Meja 12 — Hot Desk',
+    code: 'meja-01',
+    name: 'Meja 01 — Private Desk',
     venueName: VENUE_NAME,
     type: 'desk',
-    location: 'Lantai 2 · dekat jendela',
+    location: 'Lantai Mezannine',
     capacity: 1,
     description: 'Meja fleksibel dengan colokan listrik dan Wi-Fi cepat.',
     isActive: true,
@@ -23,11 +23,11 @@ export const seedWorkspaces: Workspace[] = [
     ],
   },
   {
-    code: 'meja-04',
-    name: 'Meja 04 — Quiet Zone',
+    code: 'meja-02',
+    name: 'Meja 02 — Round Table',
     venueName: VENUE_NAME,
     type: 'desk',
-    location: 'Lantai 2 · zona tenang',
+    location: 'Lantai Mezannine',
     capacity: 1,
     description: 'Zona tenang untuk fokus, tersedia lampu baca.',
     isActive: true,
@@ -40,11 +40,11 @@ export const seedWorkspaces: Workspace[] = [
     ],
   },
   {
-    code: 'ruang-a',
-    name: 'Ruang A — Meeting Room',
+    code: 'ruang-b',
+    name: 'Ruang B — Meeting Room',
     venueName: VENUE_NAME,
     type: 'room',
-    location: 'Lantai 3',
+    location: 'Lantai Mezannine',
     capacity: 6,
     description: 'Ruang meeting kapasitas 6 orang, TV & whiteboard.',
     isActive: true,

@@ -16,6 +16,7 @@ import {
 } from 'lucide-react'
 
 import { BankGrid } from '@/components/flow/BankGrid'
+import { DatePicker } from '@/components/flow/DatePicker'
 import { DemoPanel } from '@/components/flow/DemoPanel'
 import { Instructions } from '@/components/flow/Instructions'
 import { PhoneShell } from '@/components/PhoneShell'
@@ -59,7 +60,7 @@ export function PaymentFlowPage() {
   const [demoBusy, setDemoBusy] = useState(false)
   const [publicSettings, setPublicSettings] = useState<PublicSettings | null>(null)
 
-  const { phase, workspace, hours, bankCode, payment, errorMessage, cancelledAt } =
+  const { phase, workspace, hours, bankCode, payment, errorMessage, cancelledAt, bookingDate, userChoice } =
     state
 
   // ----- Boot: resolve workspace, then resume an open (unpaid) VA if any -----
@@ -73,7 +74,22 @@ export function PaymentFlowPage() {
         dispatch({ type: 'loaded', workspace: ws })
         const open = await api.findOpenPayment(workspaceCode)
         if (!alive) return
-        if (open) dispatch({ type: 'resumed', payment: open })
+        // DEBUG findOpenPayment
+        console.log('🔍 [DEBUG] findOpenPayment result:')
+        console.log('  workspaceCode:', workspaceCode)
+        console.log('  open:', open)
+        console.log('  open status:', open?.status)
+        console.log('  open createdAt:', open?.createdAt)
+        console.log('  open inactiveDate:', open?.inactiveDate)
+        console.log('  will resume (open !== null):', open !== null)
+        
+        if (open) {
+          // Skip to VA screen - don't dispatch 'loaded' first
+          dispatch({ type: 'resumed', payment: open })
+        } else {
+          // No open payment - go to choice screen
+          dispatch({ type: 'loaded', workspace: ws })
+        }
       })
       .catch(() => {
         if (alive) dispatch({ type: 'loadFailed' })
@@ -246,13 +262,6 @@ export function PaymentFlowPage() {
               QR dengan kode <span className="font-mono">{workspaceCode}</span> tidak
               ditemukan, atau meja/ruangan sedang dinonaktifkan oleh admin.
             </p>
-            <button
-              type="button"
-              onClick={() => navigate('/')}
-              className="mt-2 rounded-xl bg-zinc-900 px-5 py-3 text-sm font-semibold text-white active:bg-zinc-700"
-            >
-              Kembali ke beranda
-            </button>
           </div>
         )
 
@@ -281,6 +290,98 @@ export function PaymentFlowPage() {
           </div>
         )
 
+      // NEW: Choice screen - "Pesan Makan / Pesan Meja"
+      case 'choice':
+        if (!workspace) return null
+        return (
+          <div className="space-y-4">
+            <div className="text-center">
+              <h2 className="text-lg font-semibold text-zinc-900">Apa yang ingin Anda pesan?</h2>
+              <p className="mt-1 text-sm text-zinc-500">Pilih jenis pemesanan</p>
+            </div>
+            
+            <div className="space-y-3">
+              <button
+                type="button"
+                onClick={() => dispatch({ type: 'setUserChoice', choice: 'meja' })}
+                className="flex w-full items-center gap-4 rounded-2xl border-2 border-zinc-200 p-4 text-left transition hover:border-zinc-300 hover:shadow-sm active:scale-"
+              >
+                <span className="flex h-14 w-14 shrink-0 items-center justify-center rounded-xl bg-blue-100 text-blue-600">
+                  <Monitor className="h-7 w-7" aria-hidden />
+                </span>
+                <div>
+                  <p className="font-semibold text-zinc-900">Pesan Meja</p>
+                  <p className="text-sm text-zinc-500">Sewa meja/ruangan coworking</p>
+                </div>
+              </button>
+              
+              <button
+                type="button"
+                onClick={() => { toast.info('Fitur pesan makan segera hadir!', { description: 'Fitur dalam pengembangan.' }) }}
+                className="flex w-full items-center gap-4 rounded-2xl border-2 border-zinc-200 p-4 text-left transition hover:border-zinc-300 hover:shadow-sm active:scale-"
+              >
+                <span className="flex h-14 w-14 shrink-0 items-center justify-center rounded-xl bg-amber-100 text-amber-600">
+                  <svg className="h-7 w-7" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253" />
+                  </svg>
+                </span>
+                <div>
+                  <p className="font-semibold text-zinc-900">Pesan Makan</p>
+                  <p className="text-sm text-zinc-500">Pemesanan makanan & minuman</p>
+                </div>
+              </button>
+            </div>
+          </div>
+        )
+
+      // NEW: Schedule type - "Hari Ini / Hari Lain"
+      case 'scheduleType':
+        if (!workspace) return null
+        return (
+          <div className="space-y-4">
+            <button
+              type="button"
+              onClick={() => dispatch({ type: 'setScheduleType', scheduleType: 'today' })}
+              className="flex w-full items-center gap-4 rounded-2xl border-2 border-zinc-200 p-4 text-left transition hover:border-zinc-300 hover:shadow-sm"
+            >
+              <span className="flex h-14 w-14 shrink-0 items-center justify-center rounded-xl bg-green-100 text-green-600">
+                <svg className="h-7 w-7" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                </svg>
+              </span>
+              <div>
+                <p className="font-semibold text-zinc-900">Pesan Hari Ini</p>
+                <p className="text-sm text-zinc-500">Mulai booking sekarang</p>
+              </div>
+            </button>
+            
+            <button
+              type="button"
+              onClick={() => dispatch({ type: 'setScheduleType', scheduleType: 'other' })}
+              className="flex w-full items-center gap-4 rounded-2xl border-2 border-zinc-200 p-4 text-left transition hover:border-zinc-300 hover:shadow-sm"
+            >
+              <span className="flex h-14 w-14 shrink-0 items-center justify-center rounded-xl bg-purple-100 text-purple-600">
+                <svg className="h-7 w-7" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                </svg>
+              </span>
+              <div>
+                <p className="font-semibold text-zinc-900">Pesan Hari Lain</p>
+                <p className="text-sm text-zinc-500">Booking untuk tanggal yang berbeda</p>
+              </div>
+            </button>
+          </div>
+        )
+
+      // NEW: Date picker
+      case 'datePicker':
+        return (
+          <DatePicker
+            onSelect={(date) => dispatch({ type: 'setBookingDate', date })}
+            onBack={() => dispatch({ type: 'setUserChoice', choice: 'meja' })}
+          />
+        )
+
       case 'select': {
         if (!workspace || !breakdown) return null
         const customStep = hours >= 10 ? 2 : 1
@@ -292,8 +393,36 @@ export function PaymentFlowPage() {
             hours: Math.min(MAX_HOURS, Math.max(MIN_HOURS, hours + delta)),
           })
         }
+        
+        // Format booking date if selected
+        const bookingDateDisplay = bookingDate 
+          ? new Date(bookingDate).toLocaleDateString('id-ID', { 
+              weekday: 'long', 
+              day: 'numeric', 
+              month: 'long', 
+              year: 'numeric' 
+            })
+          : null
+        
         return (
           <div className="space-y-5">
+            {/* User choice badge */}
+            {userChoice === 'makan' && (
+              <div className="flex items-center gap-2 rounded-xl border border-amber-200 bg-amber-50 p-3">
+                <span className="text-sm font-medium text-amber-800">Pesan Makan</span>
+              </div>
+            )}
+            
+            {/* Booking date info */}
+            {bookingDateDisplay && (
+              <div className="flex items-center gap-2 rounded-xl border border-zinc-200 bg-zinc-50 p-3">
+                <svg className="h-4 w-4 text-zinc-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                </svg>
+                <span className="text-sm text-zinc-700">{bookingDateDisplay}</span>
+              </div>
+            )}
+            
             {/* Duration */}
             <section>
               <h2 className="text-sm font-semibold text-zinc-900">Lama sewa</h2>
@@ -531,13 +660,6 @@ export function PaymentFlowPage() {
                 <RotateCcw className="h-4 w-4" aria-hidden />
                 Mulai dari awal
               </button>
-              <button
-                type="button"
-                onClick={() => navigate('/')}
-                className="w-full rounded-xl border border-zinc-200 px-4 py-3 text-sm font-medium text-zinc-600 active:bg-zinc-50"
-              >
-                Kembali ke beranda
-              </button>
             </div>
           </div>
         )
@@ -670,15 +792,6 @@ export function PaymentFlowPage() {
 
       {/* Header / hero */}
       <header className="bg-zinc-900 px-4 pb-5 pt-4 text-white">
-        <button
-          type="button"
-          onClick={() => navigate('/')}
-          aria-label="Kembali ke beranda"
-          className="flex items-center gap-1 text-xs font-medium text-zinc-400 active:text-white"
-        >
-          <ArrowLeft className="h-3.5 w-3.5" aria-hidden />
-          Beranda
-        </button>
         {workspace ? (
           <div className="mt-3 flex items-start gap-3">
             <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-white/10">
