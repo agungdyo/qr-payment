@@ -2,7 +2,6 @@ import { useEffect, useMemo, useReducer, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { toast } from 'sonner'
 import {
-  ArrowLeft,
   CircleAlert,
   CircleCheckBig,
   KeyRound,

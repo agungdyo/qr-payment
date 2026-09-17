@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { toast } from 'sonner'
-import { ArrowLeft, Copy, Loader2, Plus, Trash2 } from 'lucide-react'
+import { Copy, Loader2, Plus, Trash2 } from 'lucide-react'
 
 import { Button, Card, Field, NumberInput, Select, Switch, TextInput, Textarea } from '@/components/admin/controls'
 import { adminApi } from '@/lib/api/client'
@@ -194,10 +194,6 @@ export function WorkspaceFormPage() {
   return (
     <div className="mx-auto max-w-2xl space-y-5">
       <div className="flex items-center gap-2">
-        <Button variant="ghost" onClick={() => navigate('/admin/workspaces')}>
-          <ArrowLeft className="h-4 w-4" aria-hidden />
-          Kembali
-        </Button>
         <h1 className="text-xl font-bold text-zinc-900">
           {isNew ? 'Tambah Meja / Ruangan' : `Edit — ${form.code}`}
         </h1>
