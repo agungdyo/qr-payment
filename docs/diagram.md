@@ -1,3 +1,5 @@
+'''mermaid
+
 flowchart TD
 
 subgraph group_customer["Customer Experience"]
@@ -90,3 +92,5 @@ class node_public_api,node_pricing_engine,node_audit_log,node_postgres toneAmber
 class node_webhook_handler,node_maja_client,node_expiry_jobs toneMint
 class node_admin_console,node_admin_api,node_admin_pages toneRose
 class node_auth_guard,node_auth_service,node_customer_actor,node_admin_actor,node_maja_service,node_keycloak toneIndigo
+
+'''mermaid
