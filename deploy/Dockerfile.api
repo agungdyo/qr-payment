@@ -1,0 +1,55 @@
+# Image backend qr-payment (Rust + Axum).
+#
+# Konteks build = akar repo, karena Cargo.toml, src/, dan migrations/ ada di sana.
+# Bangun dari akar repo:
+#   docker build -f deploy/Dockerfile.api -t qrpay-v-backend:latest .
+#
+# src/ dipisah dari dependency di lapisan terpisah: perubahan kode hanya
+# mengompilasi ulang crate aplikasi, bukan ~400 dependency (axum, sqlx, reqwest).
+
+FROM rust:1.97-bookworm AS build
+
+WORKDIR /app
+
+# native-tls (bawaan reqwest) butuh OpenSSL saat kompilasi.
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends pkg-config libssl-dev \
+ && rm -rf /var/lib/apt/lists/*
+
+COPY Cargo.toml Cargo.lock ./
+
+# Lapisan dependency: dibangun dengan main.rs kosong supaya hasilnya bisa
+# di-cache Docker dan tidak ikut dibuang saat src/ berubah.
+RUN mkdir -p src migrations \
+ && printf 'fn main() {}\n' > src/main.rs \
+ && cargo build --release \
+ && rm -rf src
+
+COPY src ./src
+# migrations/ disematkan ke biner oleh sqlx::migrate!() saat kompilasi.
+COPY migrations ./migrations
+
+RUN cargo build --release
+
+
+FROM debian:bookworm-slim AS runtime
+
+# ca-certificates wajib: aplikasi bicara HTTPS ke Keycloak dan MAJA.
+# libssl3 wajib: native-tls (openssl) dipakai saat runtime.
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends ca-certificates libssl3 \
+ && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app
+
+COPY --from=build /app/target/release/qr-payment-api /usr/local/bin/qr-payment-api
+
+ENV PORT=3000
+ENV RUST_LOG=qr_payment_api=info,tower_http=info,sqlx=warn
+
+# Aplikasi tidak menulis berkas apa pun, jadi cukup jalan sebagai pengguna tanpa hak.
+USER nobody
+
+EXPOSE 3000
+
+CMD ["/usr/local/bin/qr-payment-api"]

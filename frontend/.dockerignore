@@ -1,0 +1,11 @@
+# .env harus dikecualikan: berkas lokal ini mengisi VITE_API_BASE_URL dengan
+# http://localhost:3000, dan kalau ikut terbawa build, alamat itu akan tertanam
+# ke bundle production.
+node_modules
+dist
+.env
+.env.*
+
+docs
+*.md
+*.log

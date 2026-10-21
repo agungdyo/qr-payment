@@ -7,7 +7,6 @@ use tokio::sync::Mutex;
 
 use crate::{config::Config, error::AppError};
 
-/// MAJA H2H client (spec v2.2 — see web-booking/docs/Maja.md).
 #[derive(Clone)]
 pub struct MajaClient {
     http: reqwest::Client,

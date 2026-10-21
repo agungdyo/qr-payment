@@ -1,0 +1,46 @@
+# Docker Compose production qr-payment.
+#
+#   cd deploy
+#   set -a; . /opt/qr-payment/.env; set +a      # PUBLIC_ORIGIN dibaca dari sini
+#   docker compose up -d --build
+#
+# Hanya service `web` yang mengekspos port ke luar (8091). `api` tidak dipublish,
+# jadi backend dan database tidak bisa dihubungi langsung dari internet.
+#
+# Database TIDAK ada di sini: production memakai PostgreSQL eksternal, alamatnya
+# dari DATABASE_URL di /opt/qr-payment/.env.
+
+name: qr-payment
+
+services:
+  api:
+    image: qrpay-v-backend:latest
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile.api
+    restart: unless-stopped
+    env_file:
+      - /opt/qr-payment/.env
+    environment:
+      PORT: 3000
+      TZ: Asia/Jakarta
+    expose:
+      - "3000"
+
+  web:
+    image: qrpay-v-frontend:latest
+    build:
+      context: ../frontend
+      dockerfile: Dockerfile
+      args:
+        # Wajib diisi: frontend memakai nilai ini untuk memilih backend sungguhan.
+        # Kosong = bundle berjalan di mode demo (data palsu), jadi sengaja
+        # dibiarkan gagal di sini alih-alih diam-diam menghasilkan image yang salah.
+        VITE_API_BASE_URL: ${PUBLIC_ORIGIN:?PUBLIC_ORIGIN belum diisi. Jalankan "set -a; . /opt/qr-payment/.env; set +a" lebih dulu.}
+    restart: unless-stopped
+    ports:
+      - "8091:80"
+    environment:
+      API_UPSTREAM: http://api:3000
+    depends_on:
+      - api
