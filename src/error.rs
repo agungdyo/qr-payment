@@ -4,7 +4,6 @@ use axum::{
     response::{IntoResponse, Response},
     Json,
 };
-use tower_sessions::session::Error as SessionError;
 
 #[derive(Debug)]
 pub enum AppError {
@@ -55,12 +54,6 @@ impl From<sqlx::Error> for AppError {
 impl From<anyhow::Error> for AppError {
     fn from(err: anyhow::Error) -> Self {
         AppError::Internal(err)
-    }
-}
-
-impl From<SessionError> for AppError {
-    fn from(err: SessionError) -> Self {
-        AppError::Internal(err.into())
     }
 }
 

@@ -52,13 +52,11 @@ export function HomePage() {
       .join(' · ')
 
   const handleOpenAdmin = async () => {
-    // Check if already authenticated
-    const auth = await authMe()
-    if (auth.authenticated) {
+    const user = await authMe()
+    if (user) {
       navigate('/admin')
     } else {
-      // Redirect to Keycloak login
-      authLogin()
+      authLogin('/admin')
     }
   }
 

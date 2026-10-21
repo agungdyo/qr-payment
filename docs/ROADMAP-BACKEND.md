@@ -32,20 +32,21 @@
 ## Implemented (sudah ada)
 
 ### BE-001 — Scaffold & infra
-- [x] `Cargo.toml`, `src/` (axum 0.8, sqlx 0.8, openidconnect 4.0, tower-sessions 0.14)
+- [x] `Cargo.toml`, `src/` (axum 0.8, sqlx 0.8, openidconnect 4.0, jsonwebtoken 9, axum-extra cookie)
 - [x] `docker-compose.yml`: PostgreSQL 16 (`:5434`), pgAdmin (`:5052`) — tanpa Keycloak lokal
 - [x] `pgadmin/servers.json` (+ `keycloak/realm-export.json` legacy, tidak dipakai)
 
-### BE-002 — Realm Keycloak `maja` (hosted)
-- [x] Keycloak hosted MAJA: `https://account.maja.id/auth/realms/maja` (Admin Console: `https://account.maja.id/auth/admin/master/console/`)
-- [x] Client confidential `qr-payment` (PKCE S256, redirect `{BASE_URL}/auth/callback`, `post.logout.redirect.uris` → frontend) dibuat di realm `maja`
+### BE-002 — Realm Keycloak `uipod.id` (hosted)
+- [x] Keycloak hosted MAJA: `https://account.maja.id/auth/realms/uipod.id` (Admin Console: `https://account.maja.id/auth/admin/master/console/`), realm yang sama dengan uiadv-competition
+- [ ] Client confidential `qr-payment` (redirect `{BASE_URL}/api/auth/callback`, `post.logout.redirect.uris` → frontend) dibuat di realm `uipod.id` — wajib sebelum login bisa dipakai
 
-### BE-003 — Auth (Keycloak OIDC)
-- [x] `GET /auth/login` — authorize URL + PKCE/state/nonce
-- [x] `GET /auth/callback` — validasi state/nonce, exchange code, upsert user, buat session
-- [x] `GET /auth/me` — `{authenticated, user}` (probe guard frontend)
-- [x] `GET /auth/logout` — flush session + redirect ke frontend
-- [x] Extractor `AuthAdmin` → 401 tanpa session
+### BE-003 — Auth (Keycloak OIDC + app JWT)
+- [x] `GET /api/auth/login` — authorize URL + state/nonce di cookie pendek (tanpa PKCE, sama seperti uiadv)
+- [x] `GET /api/auth/callback` — validasi state/nonce, exchange code, userinfo, upsert user, terbitkan JWT + cookie refresh Keycloak
+- [x] `GET /api/auth/me` — user object; `GET /api/auth/check` — probe `{authenticated, user}`
+- [x] `POST /api/auth/refresh` — tukar refresh token Keycloak, rotasi cookie
+- [x] `GET|POST /api/auth/logout` — hapus cookie + redirect ke `end_session_endpoint`
+- [x] Extractor `AdminAuth` → 401 tanpa JWT, 403 tanpa role `admin`
 
 ### BE-004 — Database (SQLx migrations)
 - [x] `0001_init.sql`: `workspaces`, `workspace_tiers`, `lockers`, `settings` (single-row), `bookings` (= MAJA invoice number), `payments`, `payment_events` (audit), unique index idempotensi `uq_payments_paid_invoice`

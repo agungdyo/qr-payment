@@ -1,4 +1,5 @@
-import { Navigate, Route, Routes } from 'react-router-dom'
+import { useEffect } from 'react'
+import { Navigate, Route, Routes, useSearchParams } from 'react-router-dom'
 
 import { AuthGuard } from '@/components/AuthGuard'
 import { AdminLayout } from '@/components/admin/AdminLayout'
@@ -9,6 +10,7 @@ import { AdminWorkspacesPage } from '@/pages/admin/AdminWorkspacesPage'
 import { WorkspaceFormPage } from '@/pages/admin/WorkspaceFormPage'
 import { HomePage } from '@/pages/HomePage'
 import { PaymentFlowPage } from '@/pages/PaymentFlowPage'
+import { authLogin } from '@/lib/api/client'
 
 export default function App() {
   return (
@@ -42,9 +44,42 @@ export default function App() {
   )
 }
 
-// Halaman login - redirect ke backend auth
+// Halaman login, redirect ke backend auth. Kalau callback gagal, tampilkan
+// pesan dan tombol coba lagi supaya tidak berputar antara /login dan Keycloak.
 function LoginPage() {
-  // Redirect langsung ke backend login endpoint
-  window.location.href = `${import.meta.env.VITE_API_BASE_URL || 'http://localhost:3000'}/auth/login`
-  return null
+  const [params] = useSearchParams()
+  const error = params.get('error')
+
+  useEffect(() => {
+    if (!error) authLogin('/admin')
+  }, [error])
+
+  if (!error) return null
+
+  const message =
+    error === 'auth_failed'
+      ? 'Autentikasi gagal. Silakan coba lagi.'
+      : error === 'no_code'
+        ? 'Kode otorisasi tidak ditemukan.'
+        : error === 'state_mismatch'
+          ? 'Sesi login tidak valid. Mulai ulang dari halaman ini.'
+          : 'Login dibatalkan atau gagal.'
+
+  return (
+    <div className="flex min-h-dvh items-center justify-center bg-zinc-100 px-5">
+      <div className="w-full max-w-sm rounded-2xl bg-white p-6 shadow-sm">
+        <h1 className="text-lg font-semibold text-zinc-900">Login gagal</h1>
+        <p className="mt-2 text-sm text-zinc-600">{message}</p>
+        <button
+          onClick={() => authLogin('/admin')}
+          className="mt-5 w-full rounded-lg bg-zinc-900 px-4 py-2.5 text-sm font-semibold text-white"
+        >
+          Coba lagi
+        </button>
+        <a href="/" className="mt-3 block text-center text-sm text-zinc-500">
+          Kembali ke beranda
+        </a>
+      </div>
+    </div>
+  )
 }

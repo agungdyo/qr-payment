@@ -1,49 +1,70 @@
 import { ApiError, type AdminApi, type DemoApi, type PaymentApi } from './types'
 import { demoApi as mockDemoApi, mockAdminApi, mockApi } from './mock'
 
-/**
- * Auth API functions (always calls real backend, not mock)
- */
-export interface AuthMeResponse {
-  authenticated: boolean
-  user?: {
-    id: string
-    username: string
-    name?: string
-    email?: string
-  }
+export interface User {
+  id: string
+  email: string | null
+  name: string | null
+  username: string
+  roles: string[]
+  isAdmin: boolean
+  createdAt: string
 }
 
-export async function authMe(): Promise<AuthMeResponse> {
+export interface AuthCheckResponse {
+  authenticated: boolean
+  user: User | null
+}
+
+export async function authCheck(): Promise<AuthCheckResponse> {
   if (!API_BASE) {
-    // Demo mode: no real auth
-    return { authenticated: false }
+    return { authenticated: false, user: null }
   }
   try {
-    const res = await fetch(`${API_BASE}/auth/me`, {
+    const res = await fetch(`${API_BASE}/api/auth/check`, {
       credentials: 'include',
     })
-    // Handle 401 Unauthorized explicitly
-    if (res.status === 401) {
-      return { authenticated: false }
+    if (!res.ok) {
+      return { authenticated: false, user: null }
     }
-    if (!res.ok) return { authenticated: false }
-    return (await res.json()) as AuthMeResponse
+    return (await res.json()) as AuthCheckResponse
   } catch {
-    return { authenticated: false }
+    return { authenticated: false, user: null }
   }
 }
 
-export async function authLogout(): Promise<void> {
-  if (!API_BASE) return
-  await fetch(`${API_BASE}/auth/logout`, {
-    credentials: 'include',
-  })
+export async function authMe(): Promise<User | null> {
+  if (!API_BASE) return null
+  try {
+    const res = await fetch(`${API_BASE}/api/auth/me`, {
+      credentials: 'include',
+    })
+    if (!res.ok) return null
+    return (await res.json()) as User
+  } catch {
+    return null
+  }
 }
 
-export async function authLogin(): Promise<void> {
+export function getLoginUrl(returnUrl?: string): string {
+  const query = returnUrl
+    ? `?returnUrl=${encodeURIComponent(returnUrl)}`
+    : ''
+  return `${API_BASE}/api/auth/login${query}`
+}
+
+export function getLogoutUrl(): string {
+  return `${API_BASE}/api/auth/logout`
+}
+
+export function authLogout(): void {
   if (!API_BASE) return
-  window.location.href = `${API_BASE}/auth/login`
+  window.location.href = getLogoutUrl()
+}
+
+export function authLogin(returnUrl?: string): void {
+  if (!API_BASE) return
+  window.location.href = getLoginUrl(returnUrl)
 }
 
 // --------------------------------------------------------------------------------

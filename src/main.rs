@@ -14,7 +14,7 @@ use std::path::Path;
 
 use anyhow::Result;
 use axum::{
-    http::StatusCode,
+    http::{header, HeaderValue, Method, StatusCode},
     routing::{get, post},
     Json, Router,
 };
@@ -23,8 +23,6 @@ use tower_http::{
     services::{ServeDir, ServeFile},
     trace::TraceLayer,
 };
-use tower_sessions::{cookie::SameSite, Expiry, SessionManagerLayer};
-use tower_sessions_sqlx_store::PostgresStore;
 
 use crate::{config::Config, state::AppState};
 
@@ -46,27 +44,25 @@ async fn main() -> Result<()> {
     sqlx::migrate!().run(&pool).await?;
     tracing::info!("database migrations applied");
 
-    // Session store in PostgreSQL.
-    let session_store = PostgresStore::new(pool.clone());
-    session_store.migrate().await?;
-    let session_layer = SessionManagerLayer::new(session_store)
-        .with_name(config.session_cookie_name.clone())
-        .with_secure(config.session_secure)
-        .with_same_site(SameSite::Lax)
-        // The session must outlive the OIDC login round-trip (user spends time on
-        // the Keycloak page), and the admin session must not die after seconds of
-        // idle. 30s here made login fail whenever the user took >30s at Keycloak
-        // (the store refuses sessions past `expiry_date`), and logged admins out
-        // while they were simply reading the dashboard.
-        .with_expiry(Expiry::OnInactivity(time::Duration::seconds(8 * 60 * 60)));
+    let cors = CorsLayer::new()
+        .allow_origin(config.app_frontend_url.parse::<HeaderValue>()?)
+        .allow_credentials(true)
+        .allow_methods([
+            Method::GET,
+            Method::POST,
+            Method::PUT,
+            Method::DELETE,
+            Method::OPTIONS,
+        ])
+        .allow_headers([header::CONTENT_TYPE, header::AUTHORIZATION, header::COOKIE]);
 
     let state = AppState {
         pool,
         oidc: auth::OidcClient::new(
-            config.oidc_issuer_url.clone(),
-            config.oidc_client_id.clone(),
-            config.oidc_client_secret.clone(),
-            config.oidc_redirect_url(),
+            config.keycloak_issuer_url.clone(),
+            config.keycloak_client_id.clone(),
+            config.keycloak_client_secret.clone(),
+            config.keycloak_redirect_uri.clone(),
         )?,
         maja: maja::MajaClient::from_config(&config),
         config,
@@ -87,11 +83,13 @@ async fn main() -> Result<()> {
 
     let mut app = Router::new()
         .route("/api/health", get(health))
-        // Auth (Keycloak OIDC)
-        .route("/auth/login", get(auth::login))
-        .route("/auth/callback", get(auth::callback))
-        .route("/auth/logout", get(auth::logout))
-        .route("/auth/me", get(auth::me))
+        // Auth (Keycloak OIDC + app JWT)
+        .route("/api/auth/login", get(auth::login))
+        .route("/api/auth/callback", get(auth::callback))
+        .route("/api/auth/logout", get(auth::logout).post(auth::logout))
+        .route("/api/auth/me", get(auth::me))
+        .route("/api/auth/check", get(auth::check))
+        .route("/api/auth/refresh", post(auth::refresh))
         // Public (customer) API
         .route("/api/v1/workspaces", get(api::public::list_workspaces))
         .route("/api/v1/workspaces/{code}", get(api::public::get_workspace))
@@ -146,17 +144,18 @@ async fn main() -> Result<()> {
     // Serve the built frontend (SPA) when it exists.
     let frontend_dir = Path::new("frontend/dist");
     if frontend_dir.join("index.html").exists() {
+        // `fallback` keeps the fallback response status (200), unlike
+        // `not_found_service` which serves index.html with a 404. Deep links
+        // such as /admin must return the SPA shell so React Router can render.
         app = app.fallback_service(
-            ServeDir::new(frontend_dir)
-                .not_found_service(ServeFile::new(frontend_dir.join("index.html"))),
+            ServeDir::new(frontend_dir).fallback(ServeFile::new(frontend_dir.join("index.html"))),
         );
         tracing::info!("serving frontend from {}", frontend_dir.display());
     }
 
     app = app
-        .layer(CorsLayer::permissive())
         .layer(TraceLayer::new_for_http())
-        .layer(session_layer);
+        .layer(cors);
 
     let listener = tokio::net::TcpListener::bind(addr).await?;
     tracing::info!("qr-payment-api listening on http://{addr}");

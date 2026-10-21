@@ -15,7 +15,12 @@ pub struct User {
     pub username: String,
     pub name: Option<String>,
     pub email: Option<String>,
+    #[sqlx(json)]
+    pub keycloak_roles: Vec<String>,
+    pub is_admin: bool,
+    pub last_login: Option<DateTime<Utc>>,
     pub created_at: DateTime<Utc>,
+    pub updated_at: DateTime<Utc>,
 }
 
 /// Workspace row joined with the single-row venue settings for `venue_name`.

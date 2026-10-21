@@ -1,16 +1,14 @@
 use axum::{
-    extract::{FromRequestParts, Path, Query, State},
-    http::request::Parts,
+    extract::{Path, Query, State},
     Json,
 };
 use serde::Deserialize;
 use serde_json::{json, Value};
-use tower_sessions::Session;
 use uuid::Uuid;
 
 use crate::{
     api::{group_workspaces, load_tiers, load_workspace_dto, payment_to_dto, WORKSPACE_SELECT},
-    auth::self,
+    auth::AdminAuth,
     error::AppError,
     models::{
         AdminStats, Locker, LockerInput, Payment, Settings, SettingsInput, WorkspaceCreateInput,
@@ -18,26 +16,6 @@ use crate::{
     },
     state::AppState,
 };
-
-/// Extractor for admin endpoints: logged-in user required.
-pub struct AdminAuth(pub crate::models::User);
-
-impl FromRequestParts<AppState> for AdminAuth {
-    type Rejection = AppError;
-
-    async fn from_request_parts(
-        parts: &mut Parts,
-        state: &AppState,
-    ) -> Result<Self, Self::Rejection> {
-        let session = Session::from_request_parts(parts, state)
-            .await
-            .map_err(|_| AppError::Unauthorized)?;
-        let user_id: Option<Uuid> = session.get(auth::SESSION_USER_KEY).await?;
-        let user_id = user_id.ok_or(AppError::Unauthorized)?;
-        let user = auth::find_user(&state.pool, user_id).await?;
-        Ok(AdminAuth(user))
-    }
-}
 
 #[derive(Debug, Deserialize)]
 pub struct ListPaymentsQuery {

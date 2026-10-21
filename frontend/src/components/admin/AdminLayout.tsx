@@ -1,7 +1,7 @@
 import { Box, LayoutDashboard, LogOut, Monitor, QrCode, Wifi } from 'lucide-react'
 import { Link, NavLink, Outlet } from 'react-router-dom'
 import { useEffect, useState } from 'react'
-import { authMe, type AuthMeResponse } from '@/lib/api/client'
+import { authLogout, authMe, type User } from '@/lib/api/client'
 
 import { cn } from '@/lib/cn'
 
@@ -21,7 +21,7 @@ function navClass({ isActive }: { isActive: boolean }) {
 
 export function AdminLayout() {
   const [loggingOut, setLoggingOut] = useState(false)
-  const [auth, setAuth] = useState<AuthMeResponse | null>(null)
+  const [auth, setAuth] = useState<User | null>(null)
 
   useEffect(() => {
     authMe().then(setAuth).catch(() => setAuth(null))
@@ -30,8 +30,8 @@ export function AdminLayout() {
   const handleLogout = () => {
     if (loggingOut) return
     setLoggingOut(true)
-    // Redirect langsung ke backend logout - browser akan follow redirect ke Keycloak
-    window.location.href = '/auth/logout'
+    // Redirect ke backend logout, browser ikut redirect ke Keycloak.
+    authLogout()
   }
 
   return (
@@ -84,7 +84,7 @@ export function AdminLayout() {
               </Link>
               <div className="flex items-center gap-2">
                 <span className="text-xs font-medium text-zinc-600">
-                  {auth?.user?.name || auth?.user?.username || 'Admin'}
+                  {auth?.name || auth?.username || 'Admin'}
                 </span>
                 <button
                   onClick={handleLogout}

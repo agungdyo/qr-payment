@@ -17,8 +17,8 @@ Load balancer / TLS (infra)
         │
         ▼  http://SERVER:8091
 ┌───────────────┐   /api/*  ┌──────────────────┐
-│ web           │   /auth/* │ api              │
-│ nginx + dist  │──────────▶│ Axum :3000       │──▶ PostgreSQL eksternal
+│ web           │──────────▶│ api              │
+│ nginx + dist  │           │ Axum :3000       │──▶ PostgreSQL eksternal
 │ (frontend)    │           │ (backend)        │     (DATABASE_URL)
 └───────────────┘           └──────────────────┘
                                    │
@@ -30,10 +30,10 @@ Yang penting dipahami:
 
 - Hanya `web` yang mempublish port (**8091**). `api` memakai `expose`, jadi backend
   tidak bisa dihubungi langsung dari internet.
-- Frontend dan API **satu origin** (nginx mem-proxy `/api/` dan `/auth/`), sehingga
-  cookie session tidak bermasalah CORS maupun SameSite.
-- `/auth/` ikut di-proxy karena Keycloak callback mendarat di `BASE_URL/auth/callback`,
-  bukan di jalur `/api/`.
+- Frontend dan API **satu origin** (nginx mem-proxy `/api/`), sehingga cookie
+  session tidak bermasalah CORS maupun SameSite.
+- Auth ada di `/api/auth/*`, termasuk callback Keycloak
+  (`BASE_URL/api/auth/callback`), jadi cukup satu blok proxy.
 - Database **tidak** ada di compose production; alamatnya dari `DATABASE_URL` di
   `/opt/qr-payment/.env`.
 
@@ -58,12 +58,13 @@ Isi yang wajib benar:
 
 | Variabel | Catatan |
 | --- | --- |
-| `DATABASE_URL` | Host database **eksternal**, bukan `localhost` — `api` berjalan di jaringan Docker sendiri. |
-| `BASE_URL` | Origin publik backend. Dipakai menyusun redirect URI OIDC. |
-| `APP_URL` | Origin publik frontend (redirect setelah login). |
+| `DATABASE_URL` | Host database **eksternal**, bukan `localhost`, karena `api` berjalan di jaringan Docker sendiri. |
+| `BASE_URL` | Origin publik backend, basis default redirect URI OIDC. |
+| `APP_URL` / `APP_FRONTEND_URL` | Origin publik frontend (redirect setelah login dan asal CORS). |
 | `PUBLIC_ORIGIN` | Origin publik yang ditanam ke bundle frontend saat build. Isi sama dengan `BASE_URL`. |
 | `SESSION_SECURE=true` | Wajib di production; TLS diterminasi di load balancer. |
-| `OIDC_CLIENT_SECRET` | Dari Admin Console Keycloak. |
+| `KEYCLOAK_CLIENT_SECRET` | Dari Admin Console Keycloak, client `qr-payment` di realm `uipod.id`. |
+| `JWT_SECRET` | Minimal 32 karakter. Generate dengan `openssl rand -hex 32`. |
 | `MAJA_*` | Tanpa ini endpoint payment membalas 503, bukan gagal diam-diam. |
 
 `PUBLIC_ORIGIN` dibaca compose saat **build**, jadi berkas ini harus di-source lebih
@@ -75,29 +76,29 @@ set -a; . /opt/qr-payment/.env; set +a
 
 ### 2.2 Redirect URI di Keycloak
 
-Client `qr-payment` di realm `maja` harus mendaftarkan:
+Client `qr-payment` di realm `uipod.id` (realm yang sama dengan uiadv-competition)
+harus mendaftarkan:
 
 ```
-BASE_URL/auth/callback
+BASE_URL/api/auth/callback
 APP_URL/*
 ```
 
-Kalau origin publik berubah, dua tempat harus ikut berubah: `BASE_URL`/`APP_URL` di
-`.env` **dan** daftar redirect URI di Keycloak. Kalau tidak, login akan gagal dengan
-`invalid_redirect_uri` — bukan error aplikasi.
+Kalau origin publik berubah, dua tempat harus ikut berubah: `KEYCLOAK_REDIRECT_URI`
+dan `KEYCLOAK_POST_LOGOUT_URI` di `.env` **dan** daftar redirect URI di Keycloak.
+Kalau tidak, login akan gagal dengan `invalid_redirect_uri`, bukan error aplikasi.
 
 ### 2.3 Hak database
 
 Aplikasi menjalankan migrasi sendiri saat start (`sqlx::migrate!()` di `src/main.rs`).
 User database di `DATABASE_URL` karena itu butuh hak **DDL** (CREATE/ALTER TABLE).
-Selain itu `tower-sessions` membuat tabel session-nya sendiri saat boot.
 
 ### 2.4 Rahasia yang sudah ter-commit
 
-`.env.example` dan `frontend/.env.example` di repo memuat kredensial yang terlihat
-seperti production (`MAJA_CLIENT_SECRET`, `MAJA_PASSWORD`, `OIDC_CLIENT_SECRET`,
+`.env.example` dan `frontend/.env.example` di repo sebelumnya memuat kredensial yang
+terlihat seperti production (`MAJA_CLIENT_SECRET`, `MAJA_PASSWORD`, `OIDC_CLIENT_SECRET`,
 `MAJA_USERNAME`) dan keduanya terlacak git. Rotasi kredensial itu, lalu kosongkan
-nilainya di `.env.example` — berkas contoh tidak seharusnya menjadi tempat rahasia.
+nilainya di `.env.example`. Berkas contoh tidak seharusnya menjadi tempat rahasia.
 
 ---
 

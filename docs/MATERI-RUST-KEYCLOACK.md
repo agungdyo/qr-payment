@@ -172,14 +172,14 @@ Di project ini, ID token dipakai untuk:
 App ini menggunakan pola yang cukup umum:
 
 - User dikirim ke Keycloak untuk login.
-- Backend memverifikasi ID token.
-- Backend menyimpan session pengguna di sisi aplikasi.
-- Endpoint admin memerlukan session aktif.
+- Backend memverifikasi ID token dan memanggil endpoint userinfo.
+- Backend menerbitkan JWT stateless di cookie HttpOnly, plus menyimpan refresh token Keycloak di cookie terpisah.
+- Endpoint admin memerlukan JWT valid dan role `admin` yang dibaca dari database.
 
 Saat ini pola auth-nya bersifat **otentikasi terlebih dahulu**:
-- Keycloak menjawab siapa user.
-- Backend menentukan apakah user boleh masuk ke area admin berdasarkan session.
-- Setelah login berhasil, user diarahkan ke halaman admin.
+- Keycloak menjawab siapa user dan role apa yang dimilikinya.
+- Backend menyinkronkan role itu ke database setiap login (`realm_access` + `resource_access`).
+- Setelah login berhasil, user diarahkan ke halaman admin; non-admin mendapat 403 dari endpoint admin.
 
 Catatan:
 - Backend tidak menyimpan password.
@@ -273,19 +273,23 @@ Keduanya valid. Yang dipilih tergantung kebutuhan produk.
 Jika membaca `src/auth.rs`, perhatikan alur ini:
 
 1. `login`
-   Membuat URL login dan menyimpan beberapa state sementara di session.
+   Membuat URL login dan menyimpan `state` + `nonce` di cookie pendek (10 menit).
 2. `callback`
-   Menerima kembali dari Keycloak, menukar code dengan token, memverifikasi token, lalu membuat session.
-3. `logout`
-   Menghapus session aplikasi.
-4. `me`
-   Menjelaskan user yang sedang login, jika ada.
+   Memvalidasi `state`/`nonce`, menukar code dengan token, memanggil userinfo, lalu menerbitkan JWT + cookie refresh.
+3. `refresh`
+   Menukar refresh token Keycloak menjadi access token baru dan JWT baru.
+4. `logout`
+   Menghapus cookie lalu redirect ke `end_session_endpoint` Keycloak.
+5. `me` / `check`
+   Mengembalikan user yang sedang login (`check` selalu 200).
 
 Bagian lain:
 - `upsert_user`
-  Menyimpan atau memperbarui data user berdasarkan informasi dari Keycloak.
+  Menyimpan atau memperbarui user dan role dari Keycloak setiap login.
 - `find_user`
-  Mencari user berdasarkan id.
+  Mencari user berdasarkan id (dipakai extractor JWT).
+- `find_user_by_sub`
+  Mencari user berdasarkan `sub` Keycloak (dipakai saat refresh).
 
 Alurnya tidak harus dipahami sekaligus. Pahami satu fungsi pada satu waktu.
 
