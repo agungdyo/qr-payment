@@ -1,4 +1,5 @@
 use anyhow::{Context, Result};
+use urlencoding::encode;
 
 /// Application configuration, loaded from environment variables.
 #[derive(Debug, Clone)]
@@ -38,8 +39,25 @@ impl Config {
             std::env::var("BASE_URL").unwrap_or_else(|_| "http://localhost:3000".to_string());
         let app_url = std::env::var("APP_URL").unwrap_or_else(|_| "http://localhost:5173".to_string());
 
+        let database_url = match opt_env("DATABASE_URL") {
+            Some(url) => url,
+            None => {
+                let host = env("DATABASE_HOST")?;
+                let name = env("DATABASE_NAME")?;
+                let user = env("DATABASE_USER")?;
+                let port = match std::env::var("DATABASE_PORT").ok().filter(|s| !s.trim().is_empty()) {
+                    Some(p) => p
+                        .parse::<u16>()
+                        .context("DATABASE_PORT must be a valid port number (1-65535)")?,
+                    None => 5434,
+                };
+                let password = opt_env("DATABASE_PASSWORD");
+                build_database_url(&host, port, &name, &user, password.as_deref())
+            }
+        };
+
         Ok(Config {
-            database_url: env("DATABASE_URL")?,
+            database_url,
             port: std::env::var("PORT")
                 .ok()
                 .and_then(|p| p.parse().ok())
@@ -79,7 +97,10 @@ impl Config {
 }
 
 fn env(key: &str) -> Result<String> {
-    std::env::var(key).with_context(|| format!("{key} must be set"))
+    std::env::var(key)
+        .ok()
+        .filter(|s| !s.trim().is_empty())
+        .with_context(|| format!("{key} must be set"))
 }
 
 fn opt_env(key: &str) -> Option<String> {
@@ -107,4 +128,64 @@ fn parse_duration(value: &str) -> Option<u64> {
         _ => (value, 1),
     };
     number.parse::<u64>().ok().map(|n| n * multiplier)
+}
+
+fn build_database_url(
+    host: &str,
+    port: u16,
+    name: &str,
+    user: &str,
+    password: Option<&str>,
+) -> String {
+    let auth = match password {
+        Some(pass) if !pass.is_empty() => {
+            format!("{}:{}@", encode(user), encode(pass))
+        }
+        _ => format!("{}@", encode(user)),
+    };
+    format!("postgres://{auth}{host}:{port}/{name}")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_build_database_url_normal() {
+        let url = build_database_url(
+            "localhost",
+            5434,
+            "qrpayment",
+            "qrpayment",
+            Some("secret123"),
+        );
+        assert_eq!(
+            url,
+            "postgres://qrpayment:secret123@localhost:5434/qrpayment"
+        );
+    }
+
+    #[test]
+    fn test_build_database_url_special_chars() {
+        let url = build_database_url(
+            "10.0.0.1",
+            5432,
+            "mydb",
+            "user@domain",
+            Some("p@ss/word%#&"),
+        );
+        assert_eq!(
+            url,
+            "postgres://user%40domain:p%40ss%2Fword%25%23%26@10.0.0.1:5432/mydb"
+        );
+    }
+
+    #[test]
+    fn test_build_database_url_no_password() {
+        let url = build_database_url("localhost", 5434, "qrpayment", "postgres", None);
+        assert_eq!(url, "postgres://postgres@localhost:5434/qrpayment");
+
+        let url_empty = build_database_url("localhost", 5434, "qrpayment", "postgres", Some(""));
+        assert_eq!(url_empty, "postgres://postgres@localhost:5434/qrpayment");
+    }
 }

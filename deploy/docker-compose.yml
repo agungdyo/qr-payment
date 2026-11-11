@@ -8,7 +8,7 @@
 # jadi backend dan database tidak bisa dihubungi langsung dari internet.
 #
 # Database TIDAK ada di sini: production memakai PostgreSQL eksternal, alamatnya
-# dari DATABASE_URL di /opt/qr-payment/.env.
+# dari DATABASE_HOST/PORT/NAME/USER/PASSWORD (atau DATABASE_URL) di /opt/qr-payment/.env.
 
 name: qr-payment
 

@@ -19,7 +19,7 @@ Load balancer / TLS (infra)
 ┌───────────────┐   /api/*  ┌──────────────────┐
 │ web           │──────────▶│ api              │
 │ nginx + dist  │           │ Axum :3000       │──▶ PostgreSQL eksternal
-│ (frontend)    │           │ (backend)        │     (DATABASE_URL)
+│ (frontend)    │           │ (backend)        │     (DATABASE_* / DATABASE_URL)
 └───────────────┘           └──────────────────┘
                                    │
                                    └──▶ Keycloak (account.maja.id)
@@ -34,7 +34,7 @@ Yang penting dipahami:
   session tidak bermasalah CORS maupun SameSite.
 - Auth ada di `/api/auth/*`, termasuk callback Keycloak
   (`BASE_URL/api/auth/callback`), jadi cukup satu blok proxy.
-- Database **tidak** ada di compose production; alamatnya dari `DATABASE_URL` di
+- Database **tidak** ada di compose production; alamatnya dari 5 variabel `DATABASE_*` (atau `DATABASE_URL` jika di-override) di
   `/opt/qr-payment/.env`.
 
 ---
@@ -58,7 +58,7 @@ Isi yang wajib benar:
 
 | Variabel | Catatan |
 | --- | --- |
-| `DATABASE_URL` | Host database **eksternal**, bukan `localhost`, karena `api` berjalan di jaringan Docker sendiri. |
+| `DATABASE_HOST` / `PORT` / `NAME` / `USER` / `PASSWORD` | Konfigurasi database PostgreSQL **eksternal** (bukan `localhost`, karena `api` berjalan di jaringan Docker sendiri). `DATABASE_PORT` default 5432 di prod. Alternatif: `DATABASE_URL` masih didukung dan menang bila keduanya ada. |
 | `BASE_URL` | Origin publik backend, basis default redirect URI OIDC. |
 | `APP_URL` / `APP_FRONTEND_URL` | Origin publik frontend (redirect setelah login dan asal CORS). |
 | `PUBLIC_ORIGIN` | Origin publik yang ditanam ke bundle frontend saat build. Isi sama dengan `BASE_URL`. |
@@ -91,7 +91,7 @@ Kalau tidak, login akan gagal dengan `invalid_redirect_uri`, bukan error aplikas
 ### 2.3 Hak database
 
 Aplikasi menjalankan migrasi sendiri saat start (`sqlx::migrate!()` di `src/main.rs`).
-User database di `DATABASE_URL` karena itu butuh hak **DDL** (CREATE/ALTER TABLE).
+User database di `DATABASE_USER` (atau di dalam `DATABASE_URL`) karena itu butuh hak **DDL** (CREATE/ALTER TABLE).
 
 ### 2.4 Rahasia yang sudah ter-commit
 
