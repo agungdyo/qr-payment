@@ -1,7 +1,5 @@
 -- QR payment initial schema (walk-in coworking payments via MAJA billing gateway)
 
-CREATE EXTENSION IF NOT EXISTS pgcrypto;
-
 -- Workspaces (meja/ruangan) — `code` is the QR payload key and the immutable id.
 CREATE TABLE workspaces (
     code        TEXT PRIMARY KEY,
