@@ -23,13 +23,16 @@ COPY Cargo.toml Cargo.lock ./
 RUN mkdir -p src migrations \
  && printf 'fn main() {}\n' > src/main.rs \
  && cargo build --release \
- && rm -rf src
+ && rm -rf src target/release/deps/qr_payment_api* target/release/qr-payment-api*
 
 COPY src ./src
 # migrations/ disematkan ke biner oleh sqlx::migrate!() saat kompilasi.
 COPY migrations ./migrations
 
-RUN cargo build --release
+# touch src/main.rs memastikan Cargo mengenali kode sumber baru dan mengompilasi ulang
+# biner aplikasi sungguhan (bukan memakai dummy main).
+RUN touch src/main.rs \
+ && cargo build --release
 
 
 FROM debian:bookworm-slim AS runtime
