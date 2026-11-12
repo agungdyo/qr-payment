@@ -29,6 +29,9 @@ import { formatDateTime, formatIDR, groupDigits, remainingSeconds } from '@/lib/
 import {
   MAX_HOURS,
   MIN_HOURS,
+  availableBillingModes,
+  billingModeLabel,
+  billingSelectionLabel,
   hoursLabel,
   quote,
   tierDurations,
@@ -60,7 +63,7 @@ export function PaymentFlowPage() {
   const [demoBusy, setDemoBusy] = useState(false)
   const [publicSettings, setPublicSettings] = useState<PublicSettings | null>(null)
 
-  const { phase, workspace, hours, bankCode, payment, errorMessage, cancelledAt, bookingDate, userChoice } =
+  const { phase, workspace, billingMode, hours, bankCode, payment, errorMessage, cancelledAt, bookingDate, userChoice } =
     state
 
   // ----- Boot: resolve workspace, then resume an open (unpaid) VA if any -----
@@ -69,27 +72,8 @@ export function PaymentFlowPage() {
     dispatch({ type: 'reset' })
     api
       .getWorkspace(workspaceCode)
-      .then(async (ws) => {
-        if (!alive) return
-        dispatch({ type: 'loaded', workspace: ws })
-        const open = await api.findOpenPayment(workspaceCode)
-        if (!alive) return
-        // DEBUG findOpenPayment
-        console.log('🔍 [DEBUG] findOpenPayment result:')
-        console.log('  workspaceCode:', workspaceCode)
-        console.log('  open:', open)
-        console.log('  open status:', open?.status)
-        console.log('  open createdAt:', open?.createdAt)
-        console.log('  open inactiveDate:', open?.inactiveDate)
-        console.log('  will resume (open !== null):', open !== null)
-        
-        if (open) {
-          // Skip to VA screen - don't dispatch 'loaded' first
-          dispatch({ type: 'resumed', payment: open })
-        } else {
-          // No open payment - go to choice screen
-          dispatch({ type: 'loaded', workspace: ws })
-        }
+      .then((ws) => {
+        if (alive) dispatch({ type: 'loaded', workspace: ws })
       })
       .catch(() => {
         if (alive) dispatch({ type: 'loadFailed' })
@@ -139,8 +123,8 @@ export function PaymentFlowPage() {
   }, [phase, payment?.id]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const breakdown = useMemo(
-    () => (workspace ? quote(workspace, hours) : null),
-    [workspace, hours],
+    () => (workspace ? quote(workspace, { mode: billingMode, hours }) : null),
+    [workspace, billingMode, hours],
   )
 
   // ----- Actions -----
@@ -163,8 +147,9 @@ export function PaymentFlowPage() {
     try {
       const p = await api.initiatePayment({
         workspaceCode: workspace.code,
-        hours,
+        hours: billingMode === 'duration' ? hours : 0,
         bankCode,
+        billingMode,
       })
       dispatch({ type: 'registerSuccess', payment: p })
     } catch (error) {
@@ -380,10 +365,11 @@ export function PaymentFlowPage() {
         )
 
       case 'select': {
-        if (!workspace || !breakdown) return null
+        if (!workspace) return null
         const customStep = hours >= 10 ? 2 : 1
-        const durations = tierDurations(workspace)
-        const isTier = durations.includes(hours)
+        const modes = availableBillingModes(workspace)
+        const durations = workspace.durationEnabled ? tierDurations(workspace) : []
+        const isTier = billingMode === 'duration' && durations.includes(hours)
         const adjust = (delta: number) => {
           dispatch({
             type: 'setHours',
@@ -420,11 +406,43 @@ export function PaymentFlowPage() {
               </div>
             )}
             
+            {modes.length === 0 && (
+              <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
+                Workspace ini belum memiliki tarif yang aktif. Hubungi admin.
+              </div>
+            )}
+
+            {modes.length > 1 && (
+              <section>
+                <h2 className="text-sm font-semibold text-zinc-900">Jenis sewa</h2>
+                <div className="mt-2 grid grid-cols-3 gap-2">
+                  {modes.map((mode) => (
+                    <button
+                      key={mode}
+                      type="button"
+                      onClick={() => dispatch({ type: 'setBillingMode', mode })}
+                      className={cn(
+                        'rounded-xl border px-2 py-2 text-sm font-medium transition',
+                        billingMode === mode
+                          ? 'border-zinc-900 bg-zinc-900 text-white'
+                          : 'border-zinc-200 bg-white text-zinc-700 active:bg-zinc-50',
+                      )}
+                    >
+                      {billingModeLabel(mode)}
+                    </button>
+                  ))}
+                </div>
+              </section>
+            )}
+
             {/* Duration */}
+            {billingMode === 'duration' ? (
             <section>
               <h2 className="text-sm font-semibold text-zinc-900">Lama sewa</h2>
               <p className="mt-0.5 text-xs text-zinc-500">
-                Harga paket per durasi — durasi lain dihitung dari tarif per jam.
+                {workspace.hourlyEnabled
+                  ? 'Harga paket per durasi — durasi lain dihitung dari tarif per jam.'
+                  : 'Pilih salah satu paket durasi yang tersedia.'}
               </p>
               <div className="mt-2 flex flex-wrap gap-2">
                 {durations.map((duration) => (
@@ -443,6 +461,7 @@ export function PaymentFlowPage() {
                   </button>
                 ))}
               </div>
+              {workspace.hourlyEnabled && (
               <div className="mt-3 flex items-center gap-3 rounded-xl border border-zinc-200 px-3 py-2.5">
                 <span className="text-xs font-medium uppercase tracking-wide text-zinc-500">
                   Durasi lain
@@ -471,15 +490,28 @@ export function PaymentFlowPage() {
                   </button>
                 </div>
               </div>
-              {!isTier && (
+              )}
+              {workspace.hourlyEnabled && !isTier && (
                 <p className="mt-2 text-xs text-amber-600">
                   Tidak ada paket {hoursLabel(hours)} — harga dihitung dari tarif per
                   jam ({formatIDR(workspace.hourlyRate)}/jam).
                 </p>
               )}
+              {durations.length === 0 && !workspace.hourlyEnabled && (
+                <p className="mt-2 text-xs text-amber-600">
+                  Belum ada paket durasi untuk workspace ini.
+                </p>
+              )}
             </section>
+            ) : (
+              <div className="rounded-xl border border-sky-200 bg-sky-50 px-4 py-3 text-xs leading-relaxed text-sky-800">
+                Dibayar sekali untuk {billingMode === 'monthly' ? '1 bulan' : '1 tahun'}.
+                Tidak ada penagihan otomatis di akhir periode.
+              </div>
+            )}
 
             {/* Price */}
+            {breakdown && (
             <section className="rounded-2xl border border-zinc-200 bg-zinc-50 px-4 py-3.5 text-sm">
               <div className="flex justify-between text-zinc-600">
                 <span>Sewa {workspace.name} · {breakdown.label}</span>
@@ -498,6 +530,12 @@ export function PaymentFlowPage() {
                 <span className="tabular">{formatIDR(breakdown.total)}</span>
               </div>
             </section>
+            )}
+            {!breakdown && modes.length > 0 && (
+              <p className="text-sm text-amber-600">
+                Tarif untuk pilihan ini belum tersedia.
+              </p>
+            )}
 
             {/* Channel */}
             <section>
@@ -519,7 +557,7 @@ export function PaymentFlowPage() {
 
             <button
               type="button"
-              disabled={!bankCode}
+              disabled={!bankCode || !breakdown}
               onClick={handleRegister}
               className={cn(
                 'w-full rounded-xl px-4 py-3.5 text-sm font-semibold transition',
@@ -528,7 +566,7 @@ export function PaymentFlowPage() {
                   : 'cursor-not-allowed bg-zinc-200 text-zinc-400',
               )}
             >
-              Bayar {formatIDR(breakdown.total)}
+              Bayar {breakdown ? formatIDR(breakdown.total) : '—'}
             </button>
             <p className="-mt-3 text-center text-xs text-zinc-400">
               Nominal termasuk biaya admin VA Rp3.500 per transaksi
@@ -666,7 +704,7 @@ export function PaymentFlowPage() {
         const token = payment.bookingCode.replace(/\D/g, '').slice(-6).split('').join(' ')
         const receiptLines = [
           `Booking: ${payment.bookingCode}`,
-          `${payment.workspaceName} · ${payment.hours} jam`,
+          `${payment.workspaceName} · ${billingSelectionLabel(payment.billingMode, payment.hours)}`,
           `Total dibayar: ${formatIDR(payment.total)}`,
           `VA ${payment.bankName}: ${payment.va}`,
           `Dibayar: ${formatDateTime(payment.paidAt)}`,
@@ -680,7 +718,8 @@ export function PaymentFlowPage() {
                 Pembayaran berhasil
               </h2>
               <p className="mt-1 text-sm text-zinc-500">
-                {payment.workspaceName} kamu sudah terkunci selama {payment.hours} jam.
+                {payment.workspaceName} kamu sudah aktif untuk{' '}
+                {billingSelectionLabel(payment.billingMode, payment.hours)}.
               </p>
             </div>
 
@@ -700,7 +739,8 @@ export function PaymentFlowPage() {
                 <div className="flex justify-between gap-3">
                   <dt className="text-zinc-500">Detail</dt>
                   <dd className="text-right font-medium text-zinc-900">
-                    {payment.workspaceName} · {payment.hours} jam
+                    {payment.workspaceName} ·{' '}
+                    {billingSelectionLabel(payment.billingMode, payment.hours)}
                   </dd>
                 </div>
                 <div className="flex justify-between gap-3">

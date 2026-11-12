@@ -26,7 +26,7 @@ function cloneSeed<T>(value: T): T {
 
 function seedDb(): Db {
   return {
-    version: 1,
+    version: 2,
     workspaces: cloneSeed(seedWorkspaces),
     lockers: cloneSeed(seedLockers),
     settings: cloneSeed(seedSettings),
@@ -39,7 +39,7 @@ function loadRaw(): Db | null {
     const raw = localStorage.getItem(DB_KEY)
     if (!raw) return null
     const parsed = JSON.parse(raw) as Db
-    if (!parsed || parsed.version !== 1 || !Array.isArray(parsed.workspaces)) {
+    if (!parsed || parsed.version !== 2 || !Array.isArray(parsed.workspaces)) {
       return null
     }
     return parsed

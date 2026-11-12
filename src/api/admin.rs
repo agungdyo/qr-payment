@@ -78,8 +78,9 @@ pub async fn create_workspace(
 
     let mut tx = state.pool.begin().await?;
     sqlx::query(
-        "INSERT INTO workspaces (code, name, type, location, capacity, description, is_active, hourly_rate) \
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8)",
+        "INSERT INTO workspaces (code, name, type, location, capacity, description, is_active, \
+         duration_enabled, hourly_enabled, periodic_enabled, hourly_rate, monthly_price, annual_price) \
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)",
     )
     .bind(&code)
     .bind(&input.input.name)
@@ -88,7 +89,12 @@ pub async fn create_workspace(
     .bind(input.input.capacity)
     .bind(&input.input.description)
     .bind(input.input.is_active)
+    .bind(input.input.duration_enabled)
+    .bind(input.input.hourly_enabled)
+    .bind(input.input.periodic_enabled)
     .bind(input.input.hourly_rate)
+    .bind(input.input.monthly_price)
+    .bind(input.input.annual_price)
     .execute(&mut *tx)
     .await?;
     insert_tiers(&mut tx, &code, &input.input.tiers).await?;
@@ -109,7 +115,9 @@ pub async fn update_workspace(
     let mut tx = state.pool.begin().await?;
     let updated = sqlx::query(
         "UPDATE workspaces SET name = $1, type = $2, location = $3, capacity = $4, \
-         description = $5, is_active = $6, hourly_rate = $7, updated_at = now() WHERE code = $8",
+         description = $5, is_active = $6, duration_enabled = $7, hourly_enabled = $8, \
+         periodic_enabled = $9, hourly_rate = $10, monthly_price = $11, annual_price = $12, \
+         updated_at = now() WHERE code = $13",
     )
     .bind(&input.name)
     .bind(&input.workspace_type)
@@ -117,7 +125,12 @@ pub async fn update_workspace(
     .bind(input.capacity)
     .bind(&input.description)
     .bind(input.is_active)
+    .bind(input.duration_enabled)
+    .bind(input.hourly_enabled)
+    .bind(input.periodic_enabled)
     .bind(input.hourly_rate)
+    .bind(input.monthly_price)
+    .bind(input.annual_price)
     .bind(&code)
     .execute(&mut *tx)
     .await?;
@@ -270,6 +283,26 @@ fn validate_workspace(input: &WorkspaceInput) -> Result<(), AppError> {
     }
     if input.hourly_rate < 0 {
         return Err(AppError::bad_request("harga per jam tidak boleh negatif"));
+    }
+    if !input.duration_enabled && !input.periodic_enabled {
+        return Err(AppError::bad_request(
+            "aktifkan minimal satu mode tarif (durasi atau bulanan/tahunan)",
+        ));
+    }
+    if input.hourly_enabled && !input.duration_enabled {
+        return Err(AppError::bad_request("sewa per jam membutuhkan mode durasi"));
+    }
+    if input.hourly_enabled && input.hourly_rate <= 0 {
+        return Err(AppError::bad_request("tarif per jam harus lebih dari 0"));
+    }
+    if input.duration_enabled && input.tiers.is_empty() {
+        return Err(AppError::bad_request("tambahkan minimal satu paket durasi"));
+    }
+    if input.periodic_enabled && input.monthly_price <= 0 && input.annual_price <= 0 {
+        return Err(AppError::bad_request("isi harga bulanan atau tahunan"));
+    }
+    if input.monthly_price < 0 || input.annual_price < 0 {
+        return Err(AppError::bad_request("harga periode tidak boleh negatif"));
     }
     for tier in &input.tiers {
         if tier.duration_hours < 1 {

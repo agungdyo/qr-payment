@@ -130,8 +130,17 @@ function buildPublicApi(base: string): PaymentApi {
   return {
     listWorkspaces: () => get('/api/v1/workspaces'),
     getWorkspace: (code) => get(`/api/v1/workspaces/${code}`),
-    findOpenPayment: (workspaceCode) =>
-      get(`/api/v1/workspaces/${workspaceCode}/open-payment`),
+    findOpenPayment: (workspaceCode, billingMode, hours) => {
+      const params = new URLSearchParams()
+      if (billingMode) params.set('billingMode', billingMode)
+      if (billingMode === 'duration' && hours !== undefined) {
+        params.set('hours', String(hours))
+      }
+      const query = params.toString()
+      return get(
+        `/api/v1/workspaces/${workspaceCode}/open-payment${query ? `?${query}` : ''}`,
+      )
+    },
     initiatePayment: (req) => post('/api/v1/payments/initiate', req),
     getPayment: (id) => get(`/api/v1/payments/${id}`),
     inquiryPayment: (id) => post(`/api/v1/payments/${id}/inquiry`),

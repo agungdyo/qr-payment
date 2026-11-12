@@ -1,8 +1,9 @@
 use axum::{
-    extract::{Path, State},
+    extract::{Path, Query, State},
     Json,
 };
-use chrono::{Duration, Utc};
+use chrono::{Duration, Months, Utc};
+use serde::Deserialize;
 use serde_json::{json, Value};
 use uuid::Uuid;
 
@@ -10,8 +11,11 @@ use crate::{
     api::{group_workspaces, insert_event, load_tiers, load_workspace_dto, payment_to_dto, WORKSPACE_SELECT},
     error::AppError,
     maja::{InvoiceItem, RegisterRequest},
-    models::{bank_display_name, InitiatePaymentRequest, Payment, PaymentDto, Settings, WorkspaceDto, WorkspaceRow},
-    pricing::compute_price,
+    models::{
+        bank_display_name, BillingMode, InitiatePaymentRequest, Payment, PaymentDto, Settings,
+        WorkspaceDto, WorkspaceRow,
+    },
+    pricing::{compute_period_price, compute_price},
     state::AppState,
 };
 
@@ -36,18 +40,31 @@ pub async fn get_workspace(
     Ok(Json(load_workspace_dto(&state.pool, &code).await?))
 }
 
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct OpenPaymentQuery {
+    pub billing_mode: Option<BillingMode>,
+    pub hours: Option<i32>,
+}
+
 /// GET /api/v1/workspaces/{code}/open-payment — resume support: the open
-/// (issued, unexpired) VA for a workspace, if any.
+/// (issued, unexpired) VA matching the requested billing mode and duration.
+/// Expired VAs are never returned; the expiry job cancels them via MAJA.
 pub async fn open_payment(
     State(state): State<AppState>,
     Path(workspace_code): Path<String>,
+    Query(query): Query<OpenPaymentQuery>,
 ) -> Result<Json<Option<PaymentDto>>, AppError> {
     let payment = sqlx::query_as::<_, Payment>(
         "SELECT p.* FROM payments p JOIN bookings b ON b.code = p.booking_code \
          WHERE b.workspace_code = $1 AND p.status = 'issued' AND p.inactive_date > now() \
+           AND ($2::text IS NULL OR p.billing_mode = $2) \
+           AND ($3::int IS NULL OR p.hours = $3) \
          ORDER BY p.created_at DESC LIMIT 1",
     )
     .bind(&workspace_code)
+    .bind(query.billing_mode.map(BillingMode::as_str))
+    .bind(query.hours)
     .fetch_optional(&state.pool)
     .await?;
     match payment {
@@ -62,7 +79,8 @@ pub async fn initiate_payment(
     State(state): State<AppState>,
     Json(body): Json<InitiatePaymentRequest>,
 ) -> Result<Json<PaymentDto>, AppError> {
-    if body.hours <= 0 {
+    let mode = body.billing_mode;
+    if mode == BillingMode::Duration && body.hours <= 0 {
         return Err(AppError::bad_request("durasi tidak valid"));
     }
     if bank_display_name(&body.bank_code).is_none() {
@@ -76,32 +94,66 @@ pub async fn initiate_payment(
         return Err(AppError::bad_request("workspace tidak aktif"));
     }
 
-    // Resume: reuse an existing issued (unexpired) VA for this workspace.
+    let hours = if mode == BillingMode::Duration { body.hours } else { 0 };
+    match mode {
+        BillingMode::Duration if !workspace.row.duration_enabled => {
+            return Err(AppError::bad_request("paket durasi tidak aktif"));
+        }
+        BillingMode::Monthly | BillingMode::Annual if !workspace.row.periodic_enabled => {
+            return Err(AppError::bad_request("paket bulanan/tahunan tidak aktif"));
+        }
+        _ => {}
+    }
+
+    // Resume: reuse an issued (unexpired) VA with the same mode and duration.
     let existing = sqlx::query_as::<_, Payment>(
         "SELECT p.* FROM payments p JOIN bookings b ON b.code = p.booking_code \
          WHERE b.workspace_code = $1 AND p.status = 'issued' AND p.inactive_date > now() \
+           AND p.billing_mode = $2 AND p.hours = $3 \
          ORDER BY p.created_at DESC LIMIT 1",
     )
     .bind(&body.workspace_code)
+    .bind(mode.as_str())
+    .bind(hours)
     .fetch_optional(&state.pool)
     .await?;
     if let Some(p) = existing {
         return Ok(Json(payment_to_dto(&state.pool, &p).await?));
     }
 
-    // Server-side pricing: tier or hourly fallback + PPN 11% + VA admin fee.
-    let price = compute_price(&workspace.tiers, workspace.row.hourly_rate, body.hours)
-        .ok_or_else(|| AppError::bad_request("durasi tidak valid"))?;
+    // Server-side pricing: tier/hourly (per workspace toggle) or period price.
+    let price = match mode {
+        BillingMode::Duration => compute_price(
+            &workspace.tiers,
+            workspace.row.hourly_rate,
+            workspace.row.hourly_enabled,
+            hours,
+        ),
+        BillingMode::Monthly | BillingMode::Annual => compute_period_price(
+            workspace.row.monthly_price,
+            workspace.row.annual_price,
+            mode,
+        ),
+    }
+    .ok_or_else(|| AppError::bad_request("tarif tidak tersedia untuk pilihan ini"))?;
 
     let now = Utc::now();
     let code = booking_code();
-    let end_at = now + Duration::hours(i64::from(body.hours));
+    let end_at = match mode {
+        BillingMode::Duration => now + Duration::hours(i64::from(hours)),
+        BillingMode::Monthly => now
+            .checked_add_months(Months::new(1))
+            .ok_or_else(|| AppError::bad_request("tanggal selesai tidak valid"))?,
+        BillingMode::Annual => now
+            .checked_add_months(Months::new(12))
+            .ok_or_else(|| AppError::bad_request("tanggal selesai tidak valid"))?,
+    };
     let inactive = now + Duration::minutes(10);
 
     let mut tx = state.pool.begin().await?;
     sqlx::query(
-        "INSERT INTO bookings (code, workspace_code, start_at, end_at, status, hold_until, total) \
-         VALUES ($1, $2, $3, $4, 'pending', $5, $6)",
+        "INSERT INTO bookings (code, workspace_code, start_at, end_at, status, hold_until, total, billing_mode) \
+         VALUES ($1, $2, $3, $4, 'pending', $5, $6, $7)",
     )
     .bind(&code)
     .bind(&body.workspace_code)
@@ -109,20 +161,22 @@ pub async fn initiate_payment(
     .bind(end_at)
     .bind(inactive)
     .bind(price.total)
+    .bind(mode.as_str())
     .execute(&mut *tx)
     .await?;
 
     let payment_id: Uuid = sqlx::query_scalar(
-        "INSERT INTO payments (booking_code, status, hours, subtotal, tax_amount, admin_fee, amount, bank_code) \
-         VALUES ($1, 'draft', $2, $3, $4, $5, $6, $7) RETURNING id",
+        "INSERT INTO payments (booking_code, status, hours, subtotal, tax_amount, admin_fee, amount, bank_code, billing_mode) \
+         VALUES ($1, 'draft', $2, $3, $4, $5, $6, $7, $8) RETURNING id",
     )
     .bind(&code)
-    .bind(body.hours)
+    .bind(hours)
     .bind(price.subtotal)
     .bind(price.tax)
     .bind(price.admin_fee)
     .bind(price.total)
     .bind(&body.bank_code)
+    .bind(mode.as_str())
     .fetch_one(&mut *tx)
     .await?;
 
@@ -136,7 +190,7 @@ pub async fn initiate_payment(
         amount: price.total as f64,
         inactive_date: Some(inactive.format("%Y-%m-%d %H:%M:%S").to_string()),
         items: vec![InvoiceItem {
-            description: format!("{} — {} jam", workspace.row.name, body.hours),
+            description: invoice_description(&workspace.row.name, mode, hours),
             qty: 1,
             unit_price: price.total as f64,
             amount: price.total as f64,
@@ -319,6 +373,14 @@ fn booking_code() -> String {
     let rand = Uuid::new_v4().simple();
     let rand = rand.to_string();
     format!("QR{}{}", now.format("%y%m%d%H%M%S"), &rand[..6])
+}
+
+fn invoice_description(workspace_name: &str, mode: BillingMode, hours: i32) -> String {
+    match mode {
+        BillingMode::Duration => format!("{workspace_name} — {hours} jam"),
+        BillingMode::Monthly => format!("{workspace_name} — Bulanan"),
+        BillingMode::Annual => format!("{workspace_name} — Tahunan"),
+    }
 }
 
 fn value_to_string(v: Option<&Value>) -> Option<String> {

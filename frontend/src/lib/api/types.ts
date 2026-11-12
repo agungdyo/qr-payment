@@ -15,6 +15,9 @@ export class ApiError extends Error {
 
 export type WorkspaceType = 'desk' | 'room'
 
+/** Price mode: duration packages, or a monthly/annual pass (paid once). */
+export type BillingMode = 'duration' | 'monthly' | 'annual'
+
 /** Fixed-price rental package, e.g. "3 jam Rp 55.000" or "Harian Rp 400.000". */
 export interface RateTier {
   /** Package duration in hours (24 = daily pass). */
@@ -34,8 +37,16 @@ export interface Workspace {
   description?: string
   /** Admin toggle — inactive workspaces are hidden and not bookable. */
   isActive: boolean
-  /** Fallback price per hour, used for arbitrary durations without a tier. */
+  /** Admin toggle — fixed-price duration packages are bookable. */
+  durationEnabled: boolean
+  /** Admin toggle — arbitrary durations may be charged hourlyRate × hours. */
+  hourlyEnabled: boolean
+  /** Admin toggle — monthly/annual pass is bookable. */
+  periodicEnabled: boolean
+  /** Fallback price per hour, only used when hourlyEnabled is on. */
   hourlyRate: number
+  monthlyPrice: number
+  annualPrice: number
   /** Fixed-price duration packages (tarif per durasi). */
   tiers: RateTier[]
 }
@@ -48,7 +59,12 @@ export interface WorkspaceInput {
   capacity: number
   description?: string
   isActive: boolean
+  durationEnabled: boolean
+  hourlyEnabled: boolean
+  periodicEnabled: boolean
   hourlyRate: number
+  monthlyPrice: number
+  annualPrice: number
   tiers: RateTier[]
 }
 
@@ -66,6 +82,7 @@ export interface Payment {
   workspaceCode: string
   workspaceName: string
   hours: number
+  billingMode: BillingMode
   subtotal: number
   tax: number
   adminFee: number
@@ -84,8 +101,10 @@ export interface Payment {
 
 export interface InitiatePaymentRequest {
   workspaceCode: string
+  /** Duration in hours; 0 for monthly/annual passes. */
   hours: number
   bankCode: string
+  billingMode: BillingMode
 }
 
 export interface CancelResult {
@@ -137,8 +156,12 @@ export interface AdminStats {
 export interface PaymentApi {
   listWorkspaces(): Promise<Workspace[]>
   getWorkspace(code: string): Promise<Workspace>
-  /** Resume support: the open (issued, unexpired) VA for a workspace, if any. */
-  findOpenPayment(workspaceCode: string): Promise<Payment | null>
+  /** Resume support: the open (issued, unexpired) VA matching the selection. */
+  findOpenPayment(
+    workspaceCode: string,
+    billingMode?: BillingMode,
+    hours?: number,
+  ): Promise<Payment | null>
   /** POST /payments/initiate → MAJA register → returns issued payment with VA. */
   initiatePayment(req: InitiatePaymentRequest): Promise<Payment>
   /** Polling endpoint used while the VA screen is open. */

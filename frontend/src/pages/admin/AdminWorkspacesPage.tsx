@@ -18,7 +18,12 @@ function toInput(workspace: Workspace): WorkspaceInput {
     capacity: workspace.capacity,
     description: workspace.description,
     isActive: workspace.isActive,
+    durationEnabled: workspace.durationEnabled,
+    hourlyEnabled: workspace.hourlyEnabled,
+    periodicEnabled: workspace.periodicEnabled,
     hourlyRate: workspace.hourlyRate,
+    monthlyPrice: workspace.monthlyPrice,
+    annualPrice: workspace.annualPrice,
     tiers: workspace.tiers,
   }
 }
@@ -130,19 +135,31 @@ export function AdminWorkspacesPage() {
                     <p className="mt-0.5 truncate font-mono text-xs text-zinc-400">
                       {workspace.code} · {typeLabel} · {workspace.location}
                     </p>
-                    <p className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-zinc-600">
-                      <span className="font-semibold tabular">
-                        {formatIDR(workspace.hourlyRate)}/jam
-                      </span>
-                      <span className="text-zinc-400">
-                        Paket:{' '}
-                        {workspace.tiers
-                          .slice()
-                          .sort((a, b) => a.durationHours - b.durationHours)
-                          .map((t) => `${hoursLabel(t.durationHours)} ${formatIDR(t.price)}`)
-                          .join(' · ') || '—'}
-                      </span>
-                    </p>
+                    <div className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-zinc-600">
+                      {workspace.durationEnabled && (
+                        <span className="text-zinc-400">
+                          Paket:{' '}
+                          {workspace.tiers
+                            .slice()
+                            .sort((a, b) => a.durationHours - b.durationHours)
+                            .map((t) => `${hoursLabel(t.durationHours)} ${formatIDR(t.price)}`)
+                            .join(' · ') || '—'}
+                        </span>
+                      )}
+                      {workspace.durationEnabled && workspace.hourlyEnabled && (
+                        <span className="font-semibold tabular">
+                          {formatIDR(workspace.hourlyRate)}/jam
+                        </span>
+                      )}
+                      {workspace.periodicEnabled && (
+                        <span className="text-zinc-400">
+                          Bulanan{' '}
+                          {workspace.monthlyPrice > 0 ? formatIDR(workspace.monthlyPrice) : '—'}{' '}
+                          · Tahunan{' '}
+                          {workspace.annualPrice > 0 ? formatIDR(workspace.annualPrice) : '—'}
+                        </span>
+                      )}
+                    </div>
                   </div>
                   <div className="flex shrink-0 items-center gap-1.5">
                     <Button variant="ghost" onClick={() => void copyQrLink(workspace)}>

@@ -81,7 +81,7 @@ const publicApi: PaymentApi = {
     return workspace
   },
 
-  async findOpenPayment(workspaceCode) {
+  async findOpenPayment(workspaceCode, billingMode, hours) {
     await authorize()
     await delay(120)
     const db = loadDb()
@@ -89,7 +89,9 @@ const publicApi: PaymentApi = {
       (p) =>
         p.workspaceCode === workspaceCode &&
         p.status === 'issued' &&
-        !isExpired(p),
+        !isExpired(p) &&
+        (!billingMode || p.billingMode === billingMode) &&
+        (billingMode !== 'duration' || p.hours === hours),
     )
     return open ? cloneDbValue(open) : null
   },
@@ -105,15 +107,30 @@ const publicApi: PaymentApi = {
       })
     }
     const bank = bankName(req.bankCode)
-    const price = quote(workspace, req.hours)
+    const mode = req.billingMode
+    const hours = mode === 'duration' ? req.hours : 0
+    if (mode === 'duration' && !workspace.durationEnabled) {
+      throw new ApiError('Paket durasi tidak aktif untuk workspace ini', { status: 400 })
+    }
+    if (mode !== 'duration' && !workspace.periodicEnabled) {
+      throw new ApiError('Paket bulanan/tahunan tidak aktif untuk workspace ini', {
+        status: 400,
+      })
+    }
+    const price = quote(workspace, { mode, hours })
+    if (!price) {
+      throw new ApiError('Tarif untuk pilihan ini belum tersedia', { status: 400 })
+    }
 
     return mutate((db) => {
-      // Idempotency: resume an existing open (issued, unexpired) VA.
+      // Idempotency: resume an open (issued, unexpired) VA with the same selection.
       const open = db.payments.find(
         (p) =>
           p.workspaceCode === req.workspaceCode &&
           p.status === 'issued' &&
-          !isExpired(p),
+          !isExpired(p) &&
+          p.billingMode === mode &&
+          p.hours === hours,
       )
       if (open) return cloneDbValue(open)
 
@@ -134,7 +151,8 @@ const publicApi: PaymentApi = {
         bookingCode: randomBookingCode(),
         workspaceCode: workspace.code,
         workspaceName: workspace.name,
-        hours: req.hours,
+        hours,
+        billingMode: mode,
         subtotal: price.subtotal,
         tax: price.tax,
         adminFee: price.adminFee,

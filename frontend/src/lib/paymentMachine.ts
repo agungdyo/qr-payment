@@ -1,4 +1,5 @@
-import type { Payment, Workspace } from './api/types'
+import type { BillingMode, Payment, Workspace } from './api/types'
+import { defaultSelection } from './pricing'
 
 /**
  * Page-level state machine
@@ -21,6 +22,7 @@ export type Phase =
 export interface FlowState {
   phase: Phase
   workspace: Workspace | null
+  billingMode: BillingMode
   hours: number
   bankCode: string | null
   payment: Payment | null
@@ -35,6 +37,7 @@ export type FlowAction =
   | { type: 'loaded'; workspace: Workspace }
   | { type: 'resumed'; payment: Payment }
   | { type: 'loadFailed' }
+  | { type: 'setBillingMode'; mode: BillingMode }
   | { type: 'setHours'; hours: number }
   | { type: 'setBank'; bankCode: string }
   | { type: 'setUserChoice'; choice: 'makan' | 'meja' }
@@ -53,6 +56,7 @@ export function initialState(): FlowState {
   return {
     phase: 'choice',
     workspace: null,
+    billingMode: 'duration',
     hours: 1,
     bankCode: null,
     payment: null,
@@ -69,25 +73,52 @@ export function paymentReducer(state: FlowState, action: FlowAction): FlowState 
       return initialState()
     case 'setUserChoice':
       return { ...state, userChoice: action.choice, phase: 'scheduleType' }
-    case 'setScheduleType':
+    case 'setScheduleType': {
       if (action.scheduleType === 'today') {
-        const firstTier = state.workspace?.tiers[0]
-        return { ...state, phase: 'select', hours: firstTier ? firstTier.durationHours : 1, bookingDate: null }
+        const hours =
+          state.billingMode === 'duration' && state.workspace
+            ? defaultSelection(state.workspace).hours
+            : state.hours
+        return { ...state, phase: 'select', hours, bookingDate: null }
       }
       return { ...state, phase: 'datePicker' }
+    }
     case 'setBookingDate': {
-      const firstTier = state.workspace?.tiers[0]
-      return { ...state, phase: 'select', bookingDate: action.date, hours: firstTier ? firstTier.durationHours : 1 }
+      const hours =
+        state.billingMode === 'duration' && state.workspace
+          ? defaultSelection(state.workspace).hours
+          : state.hours
+      return { ...state, phase: 'select', bookingDate: action.date, hours }
     }
     case 'loaded': {
-      const firstTier = action.workspace.tiers[0]
-      return { ...state, phase: 'choice', workspace: action.workspace, hours: firstTier ? firstTier.durationHours : 1 }
+      const selection = defaultSelection(action.workspace)
+      return {
+        ...state,
+        phase: 'choice',
+        workspace: action.workspace,
+        billingMode: selection.mode,
+        hours: selection.hours,
+      }
     }
     case 'resumed':
-      // When resuming an open payment, preserve the existing state
-      return { ...state, phase: 'va', payment: action.payment }
+      return {
+        ...state,
+        phase: 'va',
+        payment: action.payment,
+        billingMode: action.payment.billingMode,
+        hours: action.payment.hours,
+      }
     case 'loadFailed':
       return { ...state, phase: 'notfound' }
+    case 'setBillingMode': {
+      const hours =
+        action.mode === 'duration' &&
+        state.workspace &&
+        !state.workspace.tiers.some((t) => t.durationHours === state.hours)
+          ? defaultSelection(state.workspace).hours
+          : state.hours
+      return { ...state, billingMode: action.mode, hours }
+    }
     case 'setHours':
       return { ...state, hours: action.hours }
     case 'setBank':

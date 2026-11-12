@@ -17,7 +17,8 @@ pub const WORKSPACE_SELECT: &str = r#"
     SELECT w.code, w.name,
            (SELECT venue_name FROM settings LIMIT 1) AS venue_name,
            w.type AS "type", w.location, w.capacity, w.description, w.is_active,
-           w.hourly_rate, w.created_at, w.updated_at
+           w.duration_enabled, w.hourly_enabled, w.periodic_enabled,
+           w.hourly_rate, w.monthly_price, w.annual_price, w.created_at, w.updated_at
     FROM workspaces w
 "#;
 
@@ -98,6 +99,7 @@ pub async fn payment_to_dto(pool: &PgPool, payment: &Payment) -> Result<PaymentD
         workspace_code,
         workspace_name,
         hours: payment.hours,
+        billing_mode: payment.billing_mode.clone(),
         subtotal: payment.subtotal,
         tax: payment.tax_amount,
         admin_fee: payment.admin_fee,

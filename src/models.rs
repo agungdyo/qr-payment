@@ -37,7 +37,12 @@ pub struct WorkspaceRow {
     pub capacity: i32,
     pub description: Option<String>,
     pub is_active: bool,
+    pub duration_enabled: bool,
+    pub hourly_enabled: bool,
+    pub periodic_enabled: bool,
     pub hourly_rate: i64,
+    pub monthly_price: i64,
+    pub annual_price: i64,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
 }
@@ -50,6 +55,27 @@ pub struct RateTierRow {
     pub duration_hours: i32,
     pub label: Option<String>,
     pub price: i64,
+}
+
+/// Price mode for a booking/payment. Monthly and annual passes are paid once
+/// per calendar period (MAJA has no recurring charge).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum BillingMode {
+    #[default]
+    Duration,
+    Monthly,
+    Annual,
+}
+
+impl BillingMode {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            BillingMode::Duration => "duration",
+            BillingMode::Monthly => "monthly",
+            BillingMode::Annual => "annual",
+        }
+    }
 }
 
 /// Tier DTO exposed over the API (frontend `RateTier` shape).
@@ -125,6 +151,7 @@ pub struct Payment {
     pub va: Option<String>,
     pub payment_method: Option<String>,
     pub hours: i32,
+    pub billing_mode: String,
     pub subtotal: i64,
     pub tax_amount: i64,
     pub admin_fee: i64,
@@ -150,6 +177,7 @@ pub struct PaymentDto {
     pub workspace_code: String,
     pub workspace_name: String,
     pub hours: i32,
+    pub billing_mode: String,
     pub subtotal: i64,
     pub tax: i64,
     pub admin_fee: i64,
@@ -202,8 +230,23 @@ pub struct WorkspaceInput {
     pub capacity: i32,
     pub description: Option<String>,
     pub is_active: bool,
+    #[serde(default = "default_true")]
+    pub duration_enabled: bool,
+    #[serde(default)]
+    pub hourly_enabled: bool,
+    #[serde(default)]
+    pub periodic_enabled: bool,
+    #[serde(default)]
     pub hourly_rate: i64,
+    #[serde(default)]
+    pub monthly_price: i64,
+    #[serde(default)]
+    pub annual_price: i64,
     pub tiers: Vec<RateTier>,
+}
+
+fn default_true() -> bool {
+    true
 }
 
 #[derive(Debug, Deserialize)]
@@ -229,6 +272,8 @@ pub struct InitiatePaymentRequest {
     pub workspace_code: String,
     pub hours: i32,
     pub bank_code: String,
+    #[serde(default)]
+    pub billing_mode: BillingMode,
 }
 
 // ---------------------------------------------------------------------------

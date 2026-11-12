@@ -17,7 +17,12 @@ interface FormState {
   capacity: number
   description: string
   isActive: boolean
+  durationEnabled: boolean
+  hourlyEnabled: boolean
+  periodicEnabled: boolean
   hourlyRate: number
+  monthlyPrice: number
+  annualPrice: number
   tiers: RateTier[]
 }
 
@@ -29,7 +34,12 @@ const emptyForm: FormState = {
   capacity: 1,
   description: '',
   isActive: true,
+  durationEnabled: true,
+  hourlyEnabled: false,
+  periodicEnabled: false,
   hourlyRate: 20000,
+  monthlyPrice: 0,
+  annualPrice: 0,
   tiers: [],
 }
 
@@ -42,7 +52,12 @@ function fromWorkspace(workspace: Workspace): FormState {
     capacity: workspace.capacity,
     description: workspace.description ?? '',
     isActive: workspace.isActive,
+    durationEnabled: workspace.durationEnabled,
+    hourlyEnabled: workspace.hourlyEnabled,
+    periodicEnabled: workspace.periodicEnabled,
     hourlyRate: workspace.hourlyRate,
+    monthlyPrice: workspace.monthlyPrice,
+    annualPrice: workspace.annualPrice,
     tiers: workspace.tiers.map((t) => ({ ...t })),
   }
 }
@@ -122,13 +137,27 @@ export function WorkspaceFormPage() {
     }
     if (!form.name.trim()) return 'Nama workspace wajib diisi.'
     if (form.capacity < 1) return 'Kapasitas minimal 1.'
-    if (form.hourlyRate <= 0) return 'Tarif per jam harus lebih dari 0.'
-    const durations = form.tiers.map((t) => t.durationHours)
-    if (new Set(durations).size !== durations.length) {
-      return 'Durasi paket tidak boleh duplikat.'
+    if (!form.durationEnabled && !form.periodicEnabled) {
+      return 'Aktifkan minimal satu mode tarif (durasi atau bulanan/tahunan).'
     }
-    if (form.tiers.some((t) => t.durationHours < 1 || t.price <= 0)) {
-      return 'Setiap paket butuh durasi ≥ 1 jam dan harga > 0.'
+    if (form.hourlyEnabled && form.hourlyRate <= 0) {
+      return 'Tarif per jam harus lebih dari 0.'
+    }
+    if (form.periodicEnabled && form.monthlyPrice <= 0 && form.annualPrice <= 0) {
+      return 'Isi harga bulanan atau tahunan.'
+    }
+    if (form.periodicEnabled && (form.monthlyPrice < 0 || form.annualPrice < 0)) {
+      return 'Harga periode tidak boleh negatif.'
+    }
+    if (form.durationEnabled) {
+      if (form.tiers.length === 0) return 'Tambahkan minimal satu paket durasi.'
+      const durations = form.tiers.map((t) => t.durationHours)
+      if (new Set(durations).size !== durations.length) {
+        return 'Durasi paket tidak boleh duplikat.'
+      }
+      if (form.tiers.some((t) => t.durationHours < 1 || t.price <= 0)) {
+        return 'Setiap paket butuh durasi ≥ 1 jam dan harga > 0.'
+      }
     }
     return null
   }
@@ -147,7 +176,12 @@ export function WorkspaceFormPage() {
       capacity: form.capacity,
       description: form.description.trim() || undefined,
       isActive: form.isActive,
+      durationEnabled: form.durationEnabled,
+      hourlyEnabled: form.hourlyEnabled,
+      periodicEnabled: form.periodicEnabled,
       hourlyRate: form.hourlyRate,
+      monthlyPrice: form.monthlyPrice,
+      annualPrice: form.annualPrice,
       tiers: form.tiers
         .map((t) => ({ ...t, label: t.label }))
         .sort((a, b) => a.durationHours - b.durationHours),
@@ -188,7 +222,11 @@ export function WorkspaceFormPage() {
   }
 
   const tiersTotal = formatIDR(
-    form.tiers.reduce((sum, t) => sum + t.price, 0) + form.hourlyRate,
+    (form.durationEnabled
+      ? form.tiers.reduce((sum, t) => sum + t.price, 0) +
+        (form.hourlyEnabled ? form.hourlyRate : 0)
+      : 0) +
+      (form.periodicEnabled ? form.monthlyPrice + form.annualPrice : 0),
   )
 
   return (
@@ -275,71 +313,143 @@ export function WorkspaceFormPage() {
           <h2 className="text-sm font-semibold uppercase tracking-wide text-zinc-500">
             Tarif sewa
           </h2>
-          <Button variant="outline" onClick={addTier}>
-            <Plus className="h-4 w-4" aria-hidden />
-            Tambah paket durasi
-          </Button>
+          {form.durationEnabled && (
+            <Button variant="outline" onClick={addTier}>
+              <Plus className="h-4 w-4" aria-hidden />
+              Tambah paket durasi
+            </Button>
+          )}
         </div>
-        <Field
-          label="Tarif per jam (fallback)"
-          hint="Dipakai saat durasi tidak masuk paket (paket durasi lebih utama)."
-        >
-          <NumberInput
-            value={form.hourlyRate}
-            min={1}
-            step={1000}
-            onChange={(e) => patch({ hourlyRate: Number(e.target.value) || 0 })}
-          />
-        </Field>
 
-        {form.tiers.length === 0 ? (
-          <p className="rounded-xl border border-dashed border-zinc-300 px-4 py-6 text-center text-sm text-zinc-400">
-            Belum ada paket durasi. Tambahkan mis. 1 jam, 3 jam, 8 jam, dan Harian (24 jam).
-          </p>
-        ) : (
-          <div className="space-y-2">
-            {form.tiers.map((tier, index) => (
-              <div
-                key={index}
-                className="flex flex-wrap items-center gap-2 rounded-xl border border-zinc-200 p-2.5"
-              >
-                <div className="flex min-w-28 flex-1 items-center gap-2">
-                  <NumberInput
-                    aria-label="Durasi paket (jam)"
-                    className="w-20"
-                    value={tier.durationHours}
-                    min={1}
-                    max={24}
-                    onChange={(e) =>
-                      updateTier(index, { durationHours: Number(e.target.value) || 0 })
-                    }
-                  />
-                  <span className="text-xs text-zinc-500">jam</span>
-                </div>
-                <div className="flex flex-1 items-center gap-2">
-                  <NumberInput
-                    aria-label="Harga paket"
-                    value={tier.price}
-                    min={1}
-                    step={1000}
-                    onChange={(e) => updateTier(index, { price: Number(e.target.value) || 0 })}
-                  />
-                  <span className="shrink-0 text-xs font-semibold tabular text-zinc-600">
-                    {hoursLabel(tier.durationHours)}
-                  </span>
-                  <button
-                    type="button"
-                    aria-label="Hapus paket"
-                    onClick={() => removeTier(index)}
-                    className="rounded-lg p-2 text-zinc-400 hover:bg-red-50 hover:text-red-600"
+        <div className="flex items-center justify-between rounded-xl bg-zinc-50 px-4 py-3">
+          <div>
+            <p className="text-sm font-semibold text-zinc-900">Paket durasi</p>
+            <p className="text-xs text-zinc-500">
+              Customer memilih paket tetap (mis. 1 jam, 3 jam, harian).
+            </p>
+          </div>
+          <Switch
+            checked={form.durationEnabled}
+            onChange={(value) =>
+              patch({ durationEnabled: value, ...(value ? {} : { hourlyEnabled: false }) })
+            }
+            label="Paket durasi"
+          />
+        </div>
+
+        {form.durationEnabled && (
+          <>
+            {form.tiers.length === 0 ? (
+              <p className="rounded-xl border border-dashed border-zinc-300 px-4 py-6 text-center text-sm text-zinc-400">
+                Belum ada paket durasi. Tambahkan mis. 1 jam, 3 jam, 8 jam, dan Harian (24 jam).
+              </p>
+            ) : (
+              <div className="space-y-2">
+                {form.tiers.map((tier, index) => (
+                  <div
+                    key={index}
+                    className="flex flex-wrap items-center gap-2 rounded-xl border border-zinc-200 p-2.5"
                   >
-                    <Trash2 className="h-4 w-4" aria-hidden />
-                  </button>
-                </div>
+                    <div className="flex min-w-28 flex-1 items-center gap-2">
+                      <NumberInput
+                        aria-label="Durasi paket (jam)"
+                        className="w-20"
+                        value={tier.durationHours}
+                        min={1}
+                        max={24}
+                        onChange={(e) =>
+                          updateTier(index, { durationHours: Number(e.target.value) || 0 })
+                        }
+                      />
+                      <span className="text-xs text-zinc-500">jam</span>
+                    </div>
+                    <div className="flex flex-1 items-center gap-2">
+                      <NumberInput
+                        aria-label="Harga paket"
+                        value={tier.price}
+                        min={1}
+                        step={1000}
+                        onChange={(e) => updateTier(index, { price: Number(e.target.value) || 0 })}
+                      />
+                      <span className="shrink-0 text-xs font-semibold tabular text-zinc-600">
+                        {hoursLabel(tier.durationHours)}
+                      </span>
+                      <button
+                        type="button"
+                        aria-label="Hapus paket"
+                        onClick={() => removeTier(index)}
+                        className="rounded-lg p-2 text-zinc-400 hover:bg-red-50 hover:text-red-600"
+                      >
+                        <Trash2 className="h-4 w-4" aria-hidden />
+                      </button>
+                    </div>
+                  </div>
+                ))}
               </div>
-            ))}
+            )}
+
+            <div className="flex items-center justify-between rounded-xl bg-zinc-50 px-4 py-3">
+              <div>
+                <p className="text-sm font-semibold text-zinc-900">Sewa per jam (opsional)</p>
+                <p className="text-xs text-zinc-500">
+                  Aktif = durasi di luar paket dihitung per jam.
+                </p>
+              </div>
+              <Switch
+                checked={form.hourlyEnabled}
+                onChange={(value) => patch({ hourlyEnabled: value })}
+                label="Sewa per jam"
+              />
+            </div>
+
+            {form.hourlyEnabled && (
+              <Field label="Tarif per jam" hint="Dipakai saat durasi tidak masuk paket.">
+                <NumberInput
+                  value={form.hourlyRate}
+                  min={1}
+                  step={1000}
+                  onChange={(e) => patch({ hourlyRate: Number(e.target.value) || 0 })}
+                />
+              </Field>
+            )}
+          </>
+        )}
+
+        <div className="flex items-center justify-between rounded-xl bg-zinc-50 px-4 py-3">
+          <div>
+            <p className="text-sm font-semibold text-zinc-900">Bulanan / Tahunan</p>
+            <p className="text-xs text-zinc-500">
+              Dibayar sekali per periode kalender — tanpa penagihan otomatis.
+            </p>
+          </div>
+          <Switch
+            checked={form.periodicEnabled}
+            onChange={(value) => patch({ periodicEnabled: value })}
+            label="Bulanan / Tahunan"
+          />
+        </div>
+
+        {form.periodicEnabled && (
+          <div className="grid gap-4 sm:grid-cols-2">
+            <Field label="Harga bulanan">
+              <NumberInput
+                value={form.monthlyPrice}
+                min={0}
+                step={1000}
+                onChange={(e) => patch({ monthlyPrice: Number(e.target.value) || 0 })}
+              />
+            </Field>
+            <Field label="Harga tahunan">
+              <NumberInput
+                value={form.annualPrice}
+                min={0}
+                step={1000}
+                onChange={(e) => patch({ annualPrice: Number(e.target.value) || 0 })}
+              />
+            </Field>
           </div>
         )}
+
         <p className="text-xs text-zinc-400">
           PPN 11% + biaya admin VA Rp3.500 ditambahkan otomatis di sisi backend. Estimasi
           nilai tarif aktif saat ini: {tiersTotal} (belum termasuk pajak/admin).
