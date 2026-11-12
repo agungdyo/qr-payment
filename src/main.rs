@@ -41,8 +41,12 @@ async fn main() -> Result<()> {
 
     // Database pool + migrations.
     let pool = sqlx::PgPool::connect(&config.database_url).await?;
-    sqlx::migrate!().run(&pool).await?;
-    tracing::info!("database migrations applied");
+    if config.auto_migrate {
+        sqlx::migrate!().run(&pool).await?;
+        tracing::info!("database migrations applied");
+    } else {
+        tracing::info!("AUTO_MIGRATE is disabled, skipping database migrations");
+    }
 
     let cors = CorsLayer::new()
         .allow_origin(config.app_frontend_url.parse::<HeaderValue>()?)

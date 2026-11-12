@@ -5,6 +5,8 @@ use urlencoding::encode;
 #[derive(Debug, Clone)]
 pub struct Config {
     pub database_url: String,
+    /// Whether to run sqlx migrations automatically on startup (default: true).
+    pub auto_migrate: bool,
     pub port: u16,
     /// Frontend origin, used for post-login redirects.
     pub app_url: String,
@@ -58,6 +60,9 @@ impl Config {
 
         Ok(Config {
             database_url,
+            auto_migrate: std::env::var("AUTO_MIGRATE")
+                .map(|v| v != "0" && !v.eq_ignore_ascii_case("false"))
+                .unwrap_or(true),
             port: std::env::var("PORT")
                 .ok()
                 .and_then(|p| p.parse().ok())
