@@ -19,7 +19,7 @@ INSERT INTO payment_methods (code, name, category, is_active, sort_order) VALUES
     ('bsi', 'BSI', 'va', true, 4),
     ('permata', 'Permata', 'va', true, 5),
     ('bca', 'BCA', 'va', false, 6),
-    ('qris-bni', 'QRIS BNI', 'qris', false, 7),
+    ('bni-qris', 'QRIS BNI', 'qris', false, 7),
     ('cimb', 'CIMB Niaga', 'va', false, 8),
     ('danamon', 'Bank Danamon', 'va', false, 9),
     ('hana', 'Keb Hana Bank', 'va', false, 10),
