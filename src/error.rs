@@ -29,7 +29,10 @@ impl IntoResponse for AppError {
             AppError::Forbidden => (StatusCode::FORBIDDEN, "forbidden".to_string()),
             AppError::NotFound => (StatusCode::NOT_FOUND, "not found".to_string()),
             AppError::BadRequest(msg) => (StatusCode::BAD_REQUEST, msg),
-            AppError::ServiceUnavailable(msg) => (StatusCode::SERVICE_UNAVAILABLE, msg),
+            AppError::ServiceUnavailable(msg) => {
+                tracing::error!(reason = %msg, "service unavailable");
+                (StatusCode::SERVICE_UNAVAILABLE, msg)
+            }
             AppError::Internal(err) => {
                 tracing::error!(error = ?err, "internal error");
                 (

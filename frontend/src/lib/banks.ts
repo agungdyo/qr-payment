@@ -1,13 +1,14 @@
 import type { BankOption } from './api/types'
 
-/** Available VA channels (subset of MAJA payment methods the venue enables). */
+/** Available channels (subset of MAJA payment methods the venue enables). */
 export const COW_BANKS: BankOption[] = [
-  { code: 'bni', name: 'BNI' },
-  { code: 'bca', name: 'BCA' },
-  { code: 'mandiri', name: 'Mandiri' },
-  { code: 'bri', name: 'BRI' },
-  { code: 'bsi', name: 'BSI' },
-  { code: 'permata', name: 'Permata' },
+  { code: 'bni', name: 'BNI', category: 'va' },
+  { code: 'mandiri', name: 'Mandiri', category: 'va' },
+  { code: 'bri', name: 'BRI', category: 'va' },
+  { code: 'bsi', name: 'BSI', category: 'va' },
+  { code: 'permata', name: 'Permata', category: 'va' },
+  { code: 'bca', name: 'BCA', category: 'va' },
+  { code: 'bni-qris', name: 'QRIS', category: 'qris' },
 ]
 
 export function bankName(code: string): string {

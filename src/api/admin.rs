@@ -11,8 +11,8 @@ use crate::{
     auth::AdminAuth,
     error::AppError,
     models::{
-        AdminStats, Locker, LockerInput, Payment, Settings, SettingsInput, WorkspaceCreateInput,
-        WorkspaceDto, WorkspaceInput, WorkspaceRow,
+        AdminStats, Locker, LockerInput, Payment, PaymentMethod, Settings, SettingsInput,
+        UpdatePaymentMethodInput, WorkspaceCreateInput, WorkspaceDto, WorkspaceInput, WorkspaceRow,
     },
     state::AppState,
 };
@@ -265,6 +265,38 @@ pub async fn list_payments(
         out.push(payment_to_dto(&state.pool, &payment).await?);
     }
     Ok(Json(out))
+}
+
+/// GET /api/v1/admin/payment-methods — all payment methods (for toggle switches).
+pub async fn list_payment_methods(
+    State(state): State<AppState>,
+    _auth: AdminAuth,
+) -> Result<Json<Vec<PaymentMethod>>, AppError> {
+    let rows = sqlx::query_as::<_, PaymentMethod>(
+        "SELECT * FROM payment_methods ORDER BY sort_order, name",
+    )
+    .fetch_all(&state.pool)
+    .await?;
+    Ok(Json(rows))
+}
+
+/// PUT /api/v1/admin/payment-methods/{code} — toggle active/non-active.
+pub async fn update_payment_method(
+    State(state): State<AppState>,
+    _auth: AdminAuth,
+    Path(code): Path<String>,
+    Json(input): Json<UpdatePaymentMethodInput>,
+) -> Result<Json<PaymentMethod>, AppError> {
+    let row = sqlx::query_as::<_, PaymentMethod>(
+        "UPDATE payment_methods SET is_active = $1, updated_at = now() \
+         WHERE code = $2 RETURNING *",
+    )
+    .bind(input.is_active)
+    .bind(&code)
+    .fetch_optional(&state.pool)
+    .await?
+    .ok_or(AppError::NotFound)?;
+    Ok(Json(row))
 }
 
 // ---------------------------------------------------------------------------

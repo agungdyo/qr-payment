@@ -71,6 +71,15 @@ export interface WorkspaceInput {
 export interface BankOption {
   code: string
   name: string
+  category?: 'va' | 'qris'
+}
+
+export interface PaymentMethodItem {
+  code: string
+  name: string
+  category: 'va' | 'qris'
+  isActive: boolean
+  sortOrder: number
 }
 
 export type PaymentStatus = 'issued' | 'paid' | 'cancelled' | 'failed'
@@ -90,6 +99,7 @@ export interface Payment {
   bankCode: string
   bankName: string
   va: string
+  qrContent?: string | null
   status: PaymentStatus
   createdAt: string
   /** VA payment deadline (mirrors MAJA register inactiveDate). */
@@ -171,6 +181,7 @@ export interface PaymentApi {
   /** Cancel an unpaid invoice → MAJA cancel. */
   cancelPayment(id: string): Promise<CancelResult>
   getPublicSettings(): Promise<PublicSettings>
+  getPaymentMethods(): Promise<PaymentMethodItem[]>
 }
 
 /** Admin console endpoints. */
@@ -186,6 +197,8 @@ export interface AdminApi {
   getSettings(): Promise<VenueSettings>
   updateSettings(input: VenueSettings): Promise<VenueSettings>
   listPayments(limit?: number): Promise<Payment[]>
+  listPaymentMethods(): Promise<PaymentMethodItem[]>
+  togglePaymentMethod(code: string, isActive: boolean): Promise<PaymentMethodItem>
 }
 
 export interface DemoApi {

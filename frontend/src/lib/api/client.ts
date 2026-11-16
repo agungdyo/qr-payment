@@ -146,6 +146,7 @@ function buildPublicApi(base: string): PaymentApi {
     inquiryPayment: (id) => post(`/api/v1/payments/${id}/inquiry`),
     cancelPayment: (id) => post(`/api/v1/payments/${id}/cancel`),
     getPublicSettings: () => get('/api/v1/public/settings'),
+    getPaymentMethods: () => get('/api/v1/public/payment-methods'),
   }
 }
 
@@ -163,6 +164,9 @@ function buildAdminApi(base: string): AdminApi {
     getSettings: () => get('/api/v1/admin/settings'),
     updateSettings: (input) => put('/api/v1/admin/settings', input),
     listPayments: (limit = 8) => get(`/api/v1/admin/payments?limit=${limit}`),
+    listPaymentMethods: () => get('/api/v1/admin/payment-methods'),
+    togglePaymentMethod: (code, isActive) =>
+      put(`/api/v1/admin/payment-methods/${code}`, { isActive }),
   }
 }
 

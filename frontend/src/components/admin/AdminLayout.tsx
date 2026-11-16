@@ -1,4 +1,4 @@
-import { Box, LayoutDashboard, LogOut, Monitor, QrCode, Wifi } from 'lucide-react'
+import { Box, CreditCard, LayoutDashboard, LogOut, Monitor, QrCode, Wifi } from 'lucide-react'
 import { Link, NavLink, Outlet } from 'react-router-dom'
 import { useEffect, useState } from 'react'
 import { authLogout, authMe, type User } from '@/lib/api/client'
@@ -9,6 +9,7 @@ const NAV_ITEMS = [
   { to: '/admin', label: 'Ringkasan', icon: LayoutDashboard, end: true },
   { to: '/admin/workspaces', label: 'Meja & Ruangan', icon: Monitor, end: false },
   { to: '/admin/lockers', label: 'Loker', icon: Box, end: false },
+  { to: '/admin/payment-methods', label: 'Metode Pembayaran', icon: CreditCard, end: false },
   { to: '/admin/settings', label: 'Wi-Fi & Venue', icon: Wifi, end: false },
 ]
 

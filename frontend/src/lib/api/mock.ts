@@ -9,6 +9,7 @@ import {
   type Locker,
   type Payment,
   type PaymentApi,
+  type PaymentMethodItem,
   type PublicSettings,
   type VenueSettings,
   type Workspace,
@@ -42,6 +43,17 @@ const VA_PREFIXES: Record<string, string> = {
   bsi: '4518',
   permata: '8078',
 }
+
+const mockPaymentMethods: PaymentMethodItem[] = [
+  { code: 'bni', name: 'BNI', category: 'va', isActive: true, sortOrder: 1 },
+  { code: 'mandiri', name: 'Mandiri', category: 'va', isActive: true, sortOrder: 2 },
+  { code: 'bri', name: 'BRI', category: 'va', isActive: true, sortOrder: 3 },
+  { code: 'bsi', name: 'BSI', category: 'va', isActive: true, sortOrder: 4 },
+  { code: 'permata', name: 'Permata', category: 'va', isActive: true, sortOrder: 5 },
+  { code: 'bca', name: 'BCA', category: 'va', isActive: false, sortOrder: 6 },
+  // Demo seed: active so the QRIS screen is reachable without the admin console.
+  { code: 'bni-qris', name: 'QRIS BNI', category: 'qris', isActive: true, sortOrder: 7 },
+]
 
 const createVa = (bankCode: string): string => {
   const prefix = VA_PREFIXES[bankCode] ?? '8808'
@@ -106,6 +118,12 @@ const publicApi: PaymentApi = {
         status: 404,
       })
     }
+    const method = mockPaymentMethods.find((m) => m.code === req.bankCode)
+    if (method && !method.isActive) {
+      throw new ApiError(`metode pembayaran ${method.name} sedang tidak aktif`, {
+        status: 400,
+      })
+    }
     const bank = bankName(req.bankCode)
     const mode = req.billingMode
     const hours = mode === 'duration' ? req.hours : 0
@@ -160,10 +178,14 @@ const publicApi: PaymentApi = {
         bankCode: req.bankCode,
         bankName: bank,
         va: createVa(req.bankCode),
+        qrContent:
+          method?.category === 'qris'
+            ? '00020101021226680016ID.CO.BNI.WWW011893600002011111111102150000000000000005204581253033605405550005802ID5915Coworking Space6007Jakarta6304ABCD'
+            : null,
         status: 'issued',
         createdAt: new Date(now).toISOString(),
-        // Demo: 10-minute VA window so the expiry flow is easy to test.
-        inactiveDate: new Date(now + 10 * 60 * 1000).toISOString(),
+        // Mirrors the backend default PAYMENT_EXPIRES_IN=1h.
+        inactiveDate: new Date(now + 60 * 60 * 1000).toISOString(),
         paidAt: null,
         ref: null,
       }
@@ -217,6 +239,12 @@ const publicApi: PaymentApi = {
       showWifiToCustomer: s.showWifiToCustomer,
     }
     return out
+  },
+
+  async getPaymentMethods() {
+    await authorize()
+    await delay(100)
+    return cloneDbValue(mockPaymentMethods.filter((m) => m.isActive))
   },
 }
 
@@ -342,6 +370,21 @@ const adminApi: AdminApi = {
       (a, b) => Date.parse(b.createdAt) - Date.parse(a.createdAt),
     )
     return cloneDbValue(sorted.slice(0, limit))
+  },
+
+  async listPaymentMethods() {
+    await delay(120)
+    return cloneDbValue(mockPaymentMethods)
+  },
+
+  async togglePaymentMethod(code, isActive) {
+    await delay(200)
+    const method = mockPaymentMethods.find((m) => m.code === code)
+    if (!method) {
+      throw new ApiError('Metode pembayaran tidak ditemukan', { status: 404 })
+    }
+    method.isActive = isActive
+    return cloneDbValue(method)
   },
 }
 

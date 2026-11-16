@@ -20,10 +20,10 @@ import { DatePicker } from '@/components/flow/DatePicker'
 import { DemoPanel } from '@/components/flow/DemoPanel'
 import { Instructions } from '@/components/flow/Instructions'
 import { PhoneShell } from '@/components/PhoneShell'
+import { QrisCard } from '@/components/flow/QrisCard'
 import { VaBox } from '@/components/flow/VaBox'
 import { api, demoApi, isDemoMode } from '@/lib/api/client'
-import type { PublicSettings, Workspace } from '@/lib/api/types'
-import { COW_BANKS } from '@/lib/banks'
+import type { PaymentMethodItem, PublicSettings, Workspace } from '@/lib/api/types'
 import { cn } from '@/lib/cn'
 import { formatDateTime, formatIDR, groupDigits, remainingSeconds } from '@/lib/format'
 import {
@@ -62,6 +62,9 @@ export function PaymentFlowPage() {
   const [cancelling, setCancelling] = useState(false)
   const [demoBusy, setDemoBusy] = useState(false)
   const [publicSettings, setPublicSettings] = useState<PublicSettings | null>(null)
+  const [methods, setMethods] = useState<PaymentMethodItem[] | null>(null)
+  const [methodsFailed, setMethodsFailed] = useState(false)
+  const [methodsReload, setMethodsReload] = useState(0)
 
   const { phase, workspace, billingMode, hours, bankCode, payment, errorMessage, cancelledAt, bookingDate, userChoice } =
     state
@@ -92,6 +95,25 @@ export function PaymentFlowPage() {
         // settings unavailable — Wi-Fi box simply won't render
       })
   }, [])
+
+  // ----- Active payment methods (admin can disable a channel) -----
+  useEffect(() => {
+    let alive = true
+    setMethodsFailed(false)
+    api
+      .getPaymentMethods()
+      .then((list) => {
+        if (alive) setMethods(list)
+      })
+      .catch(() => {
+        if (!alive) return
+        setMethods([])
+        setMethodsFailed(true)
+      })
+    return () => {
+      alive = false
+    }
+  }, [methodsReload])
 
   // ----- 1s ticker (countdown + auto-expiry) -----
   useEffect(() => {
@@ -262,18 +284,22 @@ export function PaymentFlowPage() {
           </div>
         )
 
-      case 'registering':
+      case 'registering': {
+        const method = methods?.find((m) => m.code === bankCode)
         return (
           <div className="flex flex-col items-center gap-3 py-16 text-center">
             <Loader2 className="h-6 w-6 animate-spin text-zinc-900" aria-hidden />
             <p className="text-sm font-medium text-zinc-800">
-              Membuat Virtual Account…
+              {method?.category === 'qris'
+                ? 'Membuat kode QRIS…'
+                : 'Membuat Virtual Account…'}
             </p>
             <p className="text-xs text-zinc-500">
-              Menghubungi bank {bankCode ? COW_BANKS.find((b) => b.code === bankCode)?.name : ''}
+              Memproses via {method?.name ?? bankCode?.toUpperCase() ?? ''}
             </p>
           </div>
         )
+      }
 
       // NEW: Choice screen - "Pesan Makan / Pesan Meja"
       case 'choice':
@@ -543,15 +569,42 @@ export function PaymentFlowPage() {
                 Metode pembayaran
               </h2>
               <p className="mt-0.5 text-xs text-zinc-500">
-                Transfer bank (Virtual Account) — via mobile banking, ATM, atau
-                internet banking
+                Transfer bank (Virtual Account) atau scan QRIS.
               </p>
               <div className="mt-2">
-                <BankGrid
-                  banks={COW_BANKS}
-                  selected={bankCode}
-                  onSelect={(code) => dispatch({ type: 'setBank', bankCode: code })}
-                />
+                {methods === null ? (
+                  <div className="flex items-center gap-2 rounded-xl border border-zinc-200 px-3.5 py-3 text-sm text-zinc-500">
+                    <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
+                    Memuat metode pembayaran…
+                  </div>
+                ) : methodsFailed ? (
+                  <div className="rounded-xl border border-red-200 bg-red-50 px-3.5 py-3 text-sm text-red-700">
+                    <p>Gagal memuat metode pembayaran.</p>
+                    <button
+                      type="button"
+                      onClick={() => setMethodsReload((n) => n + 1)}
+                      className="mt-2 text-xs font-semibold underline underline-offset-2"
+                    >
+                      Coba lagi
+                    </button>
+                  </div>
+                ) : methods.length === 0 ? (
+                  <div className="rounded-xl border border-amber-200 bg-amber-50 px-3.5 py-3 text-sm text-amber-800">
+                    Belum ada metode pembayaran aktif. Hubungi admin venue.
+                  </div>
+                ) : (
+                  <BankGrid
+                    banks={methods.map((m) => ({
+                      code: m.code,
+                      name: m.name,
+                      category: m.category,
+                    }))}
+                    selected={bankCode}
+                    onSelect={(code) =>
+                      dispatch({ type: 'setBank', bankCode: code })
+                    }
+                  />
+                )}
               </div>
             </section>
 
@@ -577,43 +630,57 @@ export function PaymentFlowPage() {
 
       case 'va': {
         if (!payment) return null
+        const qrContent = payment.qrContent
+        const isQris = Boolean(qrContent)
         const remaining = remainingSeconds(payment.inactiveDate, nowMs)
         const urgent = remaining < 5 * 60
         return (
           <div className="space-y-4">
             <div className="flex items-center gap-2 text-sm font-semibold text-zinc-900">
               <CircleCheckBig className="h-5 w-5 text-emerald-600" aria-hidden />
-              Virtual Account dibuat
+              {isQris ? 'Kode QRIS dibuat' : 'Virtual Account dibuat'}
             </div>
 
-            <VaBox
-              va={payment.va}
-              inactiveDate={payment.inactiveDate}
-              nowMs={nowMs}
-              onCopy={() => void copyText(payment.va, 'Nomor VA')}
-            />
+            {qrContent ? (
+              <QrisCard
+                qrContent={qrContent}
+                merchantName={payment.workspaceName}
+                total={payment.total}
+                inactiveDate={payment.inactiveDate}
+                nowMs={nowMs}
+              />
+            ) : (
+              <>
+                <VaBox
+                  va={payment.va}
+                  inactiveDate={payment.inactiveDate}
+                  nowMs={nowMs}
+                  onCopy={() => void copyText(payment.va, 'Nomor VA')}
+                />
 
-            <div
-              className={cn(
-                'flex items-start gap-2 rounded-xl border px-3.5 py-3 text-sm',
-                urgent
-                  ? 'border-red-200 bg-red-50 text-red-700'
-                  : 'border-amber-200 bg-amber-50 text-amber-800',
-              )}
-            >
-              <CircleAlert className="mt-0.5 h-4 w-4 shrink-0" aria-hidden />
-              <span>
-                Bayar <strong className="tabular">{formatIDR(payment.total)}</strong>{' '}
-                tepat ke nomor VA di atas. Nominal berbeda tidak akan tertagih
-                otomatis.
-              </span>
-            </div>
+                <div
+                  className={cn(
+                    'flex items-start gap-2 rounded-xl border px-3.5 py-3 text-sm',
+                    urgent
+                      ? 'border-red-200 bg-red-50 text-red-700'
+                      : 'border-amber-200 bg-amber-50 text-amber-800',
+                  )}
+                >
+                  <CircleAlert className="mt-0.5 h-4 w-4 shrink-0" aria-hidden />
+                  <span>
+                    Bayar <strong className="tabular">{formatIDR(payment.total)}</strong>{' '}
+                    tepat ke nomor VA di atas. Nominal berbeda tidak akan tertagih
+                    otomatis.
+                  </span>
+                </div>
 
-            <Instructions
-              bankName={payment.bankName}
-              va={groupDigits(payment.va)}
-              totalText={formatIDR(payment.total)}
-            />
+                <Instructions
+                  bankName={payment.bankName}
+                  va={groupDigits(payment.va)}
+                  totalText={formatIDR(payment.total)}
+                />
+              </>
+            )}
 
             <p className="text-xs leading-relaxed text-zinc-400">
               Status pembayaran dicek otomatis — halaman ini akan berubah sendiri
@@ -648,10 +715,10 @@ export function PaymentFlowPage() {
             <span className="flex h-14 w-14 items-center justify-center rounded-2xl bg-amber-50 text-amber-500">
               <CircleAlert className="h-7 w-7" aria-hidden />
             </span>
-            <h2 className="text-base font-semibold">Virtual Account kedaluwarsa</h2>
+            <h2 className="text-base font-semibold">Kode pembayaran kedaluwarsa</h2>
             <p className="text-sm leading-relaxed text-zinc-500">
-              Nomor VA lama sudah tidak berlaku dan slot dilepas kembali. Anda bisa
-              membuat VA baru dengan durasi &amp; bank yang sama.
+              Kode lama sudah tidak berlaku dan slot dilepas kembali. Anda bisa
+              membuat kode baru dengan durasi &amp; metode yang sama.
             </p>
             <div className="mt-2 w-full max-w-xs space-y-2">
               <button
@@ -659,7 +726,7 @@ export function PaymentFlowPage() {
                 onClick={() => void handleNewVa()}
                 className="w-full rounded-xl bg-zinc-900 px-4 py-3 text-sm font-semibold text-white active:bg-zinc-700"
               >
-                Buat VA baru
+                Buat kode baru
               </button>
               <button
                 type="button"
@@ -706,7 +773,9 @@ export function PaymentFlowPage() {
           `Booking: ${payment.bookingCode}`,
           `${payment.workspaceName} · ${billingSelectionLabel(payment.billingMode, payment.hours)}`,
           `Total dibayar: ${formatIDR(payment.total)}`,
-          `VA ${payment.bankName}: ${payment.va}`,
+          payment.qrContent
+            ? `QRIS ${payment.bankName}`
+            : `VA ${payment.bankName}: ${payment.va}`,
           `Dibayar: ${formatDateTime(payment.paidAt)}`,
           `Ref: ${payment.ref ?? '—'}`,
         ].join('\n')
@@ -751,7 +820,9 @@ export function PaymentFlowPage() {
                 </div>
                 <div className="flex justify-between gap-3">
                   <dt className="text-zinc-500">Metode</dt>
-                  <dd className="font-medium text-zinc-900">VA {payment.bankName}</dd>
+                  <dd className="font-medium text-zinc-900">
+                    {payment.qrContent ? payment.bankName : `VA ${payment.bankName}`}
+                  </dd>
                 </div>
                 <div className="flex justify-between gap-3">
                   <dt className="text-zinc-500">Dibayar</dt>

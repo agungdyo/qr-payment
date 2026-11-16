@@ -111,6 +111,7 @@ pub async fn payment_to_dto(pool: &PgPool, payment: &Payment) -> Result<PaymentD
             .and_then(crate::models::bank_display_name)
             .map(String::from),
         va: payment.va.clone(),
+        qr_content: payment.qr_content.clone(),
         status: payment.status.clone(),
         created_at: payment.created_at,
         inactive_date: payment.inactive_date,

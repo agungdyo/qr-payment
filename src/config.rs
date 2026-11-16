@@ -33,6 +33,8 @@ pub struct Config {
     pub maja_client_secret: Option<String>,
     /// Default customer email used when registering MAJA invoices (walk-in).
     pub maja_customer_email: String,
+    /// How long a VA/QRIS stays payable, in seconds (default: 1 hour).
+    pub payment_expires_secs: u64,
 }
 
 impl Config {
@@ -97,6 +99,7 @@ impl Config {
             maja_client_secret: opt_env("MAJA_CLIENT_SECRET"),
             maja_customer_email: std::env::var("MAJA_CUSTOMER_EMAIL")
                 .unwrap_or_else(|_| "walkin@qr-payment.local".to_string()),
+            payment_expires_secs: duration_env("PAYMENT_EXPIRES_IN", 3600).max(60),
         })
     }
 }

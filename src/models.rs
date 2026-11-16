@@ -163,6 +163,7 @@ pub struct Payment {
     pub r#ref: Option<String>,
     pub inactive_date: Option<DateTime<Utc>>,
     pub paid_at: Option<DateTime<Utc>>,
+    pub qr_content: Option<String>,
     pub raw_callback: Option<serde_json::Value>,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
@@ -185,6 +186,7 @@ pub struct PaymentDto {
     pub bank_code: Option<String>,
     pub bank_name: Option<String>,
     pub va: Option<String>,
+    pub qr_content: Option<String>,
     pub status: String,
     pub created_at: DateTime<Utc>,
     pub inactive_date: Option<DateTime<Utc>>,
@@ -277,10 +279,32 @@ pub struct InitiatePaymentRequest {
 }
 
 // ---------------------------------------------------------------------------
+// Payment method (admin-configurable toggle)
+// ---------------------------------------------------------------------------
+
+#[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
+#[serde(rename_all = "camelCase")]
+pub struct PaymentMethod {
+    pub code: String,
+    pub name: String,
+    pub category: String,
+    pub is_active: bool,
+    pub sort_order: i32,
+    pub created_at: DateTime<Utc>,
+    pub updated_at: DateTime<Utc>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct UpdatePaymentMethodInput {
+    pub is_active: bool,
+}
+
+// ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
 
-/// MAJA payment method code → display name (mirrors frontend `lib/banks.ts`).
+/// MAJA payment method code → display name.
 pub fn bank_display_name(code: &str) -> Option<&'static str> {
     let name = match code {
         "mandiri" => "Bank Mandiri",
@@ -294,6 +318,7 @@ pub fn bank_display_name(code: &str) -> Option<&'static str> {
         "permatasyariah" => "Bank Permata Syariah",
         "bca" => "BCA",
         "bsi" => "BSI",
+        "bni-qris" => "QRIS BNI",
         _ => return None,
     };
     Some(name)

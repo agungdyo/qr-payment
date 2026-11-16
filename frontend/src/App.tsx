@@ -5,6 +5,7 @@ import { AuthGuard } from '@/components/AuthGuard'
 import { AdminLayout } from '@/components/admin/AdminLayout'
 import { AdminDashboardPage } from '@/pages/admin/AdminDashboardPage'
 import { AdminLockersPage } from '@/pages/admin/AdminLockersPage'
+import { AdminPaymentMethodsPage } from '@/pages/admin/AdminPaymentMethodsPage'
 import { AdminSettingsPage } from '@/pages/admin/AdminSettingsPage'
 import { AdminWorkspacesPage } from '@/pages/admin/AdminWorkspacesPage'
 import { WorkspaceFormPage } from '@/pages/admin/WorkspaceFormPage'
@@ -36,6 +37,7 @@ export default function App() {
         <Route path="workspaces/new" element={<WorkspaceFormPage />} />
         <Route path="workspaces/:workspaceCode" element={<WorkspaceFormPage />} />
         <Route path="lockers" element={<AdminLockersPage />} />
+        <Route path="payment-methods" element={<AdminPaymentMethodsPage />} />
         <Route path="settings" element={<AdminSettingsPage />} />
       </Route>
 

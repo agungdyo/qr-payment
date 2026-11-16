@@ -115,9 +115,21 @@ async fn main() -> Result<()> {
             post(api::public::cancel_payment),
         )
         .route("/api/v1/public/settings", get(api::public::public_settings))
+        .route(
+            "/api/v1/public/payment-methods",
+            get(api::public::list_payment_methods),
+        )
         .route("/api/v1/payments/callback", post(webhook::payment_callback))
         // Admin API (AuthAdmin guard: login + role admin|operator)
         .route("/api/v1/admin/stats", get(api::admin::stats))
+        .route(
+            "/api/v1/admin/payment-methods",
+            get(api::admin::list_payment_methods),
+        )
+        .route(
+            "/api/v1/admin/payment-methods/{code}",
+            axum::routing::put(api::admin::update_payment_method),
+        )
         .route(
             "/api/v1/admin/workspaces",
             get(api::admin::list_workspaces).post(api::admin::create_workspace),

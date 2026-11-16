@@ -2,7 +2,7 @@ use axum::{
     extract::{Path, Query, State},
     Json,
 };
-use chrono::{Duration, Months, Utc};
+use chrono::{DateTime, Duration, FixedOffset, Months, Utc};
 use serde::Deserialize;
 use serde_json::{json, Value};
 use uuid::Uuid;
@@ -12,8 +12,8 @@ use crate::{
     error::AppError,
     maja::{InvoiceItem, RegisterRequest},
     models::{
-        bank_display_name, BillingMode, InitiatePaymentRequest, Payment, PaymentDto, Settings,
-        WorkspaceDto, WorkspaceRow,
+        bank_display_name, BillingMode, InitiatePaymentRequest, Payment, PaymentDto, PaymentMethod,
+        Settings, WorkspaceDto, WorkspaceRow,
     },
     pricing::{compute_period_price, compute_price},
     state::AppState,
@@ -83,7 +83,21 @@ pub async fn initiate_payment(
     if mode == BillingMode::Duration && body.hours <= 0 {
         return Err(AppError::bad_request("durasi tidak valid"));
     }
-    if bank_display_name(&body.bank_code).is_none() {
+    let method = sqlx::query_as::<_, PaymentMethod>(
+        "SELECT * FROM payment_methods WHERE code = $1",
+    )
+    .bind(&body.bank_code)
+    .fetch_optional(&state.pool)
+    .await?;
+
+    if let Some(m) = &method {
+        if !m.is_active {
+            return Err(AppError::bad_request(format!(
+                "metode pembayaran {} sedang tidak aktif",
+                m.name
+            )));
+        }
+    } else if bank_display_name(&body.bank_code).is_none() {
         return Err(AppError::bad_request(format!(
             "bank tidak didukung: {}",
             body.bank_code
@@ -148,7 +162,7 @@ pub async fn initiate_payment(
             .checked_add_months(Months::new(12))
             .ok_or_else(|| AppError::bad_request("tanggal selesai tidak valid"))?,
     };
-    let inactive = now + Duration::minutes(10);
+    let inactive = now + Duration::seconds(state.config.payment_expires_secs as i64);
 
     let mut tx = state.pool.begin().await?;
     sqlx::query(
@@ -188,7 +202,7 @@ pub async fn initiate_payment(
         phone: None,
         number: code.clone(),
         amount: price.total as f64,
-        inactive_date: Some(inactive.format("%Y-%m-%d %H:%M:%S").to_string()),
+        inactive_date: Some(maja_inactive_date(inactive)),
         items: vec![InvoiceItem {
             description: invoice_description(&workspace.row.name, mode, hours),
             qty: 1,
@@ -200,15 +214,19 @@ pub async fn initiate_payment(
     let data = state.maja.register(&register).await?;
 
     let invoice_number = value_to_string(Some(&data.number));
+    let is_qris = method.as_ref().is_some_and(|m| m.category == "qris");
+    let qr_content = if is_qris { data.va.clone() } else { None };
+
     sqlx::query(
         "UPDATE payments SET status = 'issued', maja_invoice_id = $1, invoice_number = $2, va = $3, \
-         payment_method = $4, inactive_date = $5, updated_at = now() WHERE id = $6",
+         payment_method = $4, inactive_date = $5, qr_content = $6, updated_at = now() WHERE id = $7",
     )
     .bind(data.id.map(|i| i.to_string()))
     .bind(&invoice_number)
     .bind(&data.va)
     .bind(&body.bank_code)
     .bind(inactive)
+    .bind(&qr_content)
     .bind(payment_id)
     .execute(&mut *tx)
     .await?;
@@ -347,6 +365,18 @@ pub async fn cancel_payment(
     Ok(Json(json!({ "cancelledAt": Utc::now() })))
 }
 
+/// GET /api/v1/public/payment-methods — active payment methods for customer checkout.
+pub async fn list_payment_methods(
+    State(state): State<AppState>,
+) -> Result<Json<Vec<PaymentMethod>>, AppError> {
+    let rows = sqlx::query_as::<_, PaymentMethod>(
+        "SELECT * FROM payment_methods WHERE is_active = true ORDER BY sort_order, name",
+    )
+    .fetch_all(&state.pool)
+    .await?;
+    Ok(Json(rows))
+}
+
 /// GET /api/v1/public/settings — venue name + Wi-Fi (hidden when disabled).
 pub async fn public_settings(
     State(state): State<AppState>,
@@ -377,9 +407,9 @@ fn booking_code() -> String {
 
 fn invoice_description(workspace_name: &str, mode: BillingMode, hours: i32) -> String {
     match mode {
-        BillingMode::Duration => format!("{workspace_name} — {hours} jam"),
-        BillingMode::Monthly => format!("{workspace_name} — Bulanan"),
-        BillingMode::Annual => format!("{workspace_name} — Tahunan"),
+        BillingMode::Duration => format!("{workspace_name} - {hours} jam"),
+        BillingMode::Monthly => format!("{workspace_name} - Bulanan"),
+        BillingMode::Annual => format!("{workspace_name} - Tahunan"),
     }
 }
 
@@ -389,4 +419,25 @@ fn value_to_string(v: Option<&Value>) -> Option<String> {
         Value::Number(n) => Some(n.to_string()),
         _ => None,
     })
+}
+
+/// MAJA reads the naive `inactiveDate` as Asia/Jakarta; the database keeps UTC.
+fn maja_inactive_date(at: DateTime<Utc>) -> String {
+    let wib = FixedOffset::east_opt(7 * 3600).expect("valid WIB offset");
+    at.with_timezone(&wib)
+        .format("%Y-%m-%d %H:%M:%S")
+        .to_string()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn maja_inactive_date_uses_wib() {
+        let at = DateTime::parse_from_rfc3339("2026-11-16T10:00:00Z")
+            .unwrap()
+            .with_timezone(&Utc);
+        assert_eq!(maja_inactive_date(at), "2026-11-16 17:00:00");
+    }
 }
