@@ -40,7 +40,7 @@ FROM debian:bookworm-slim AS runtime
 # ca-certificates wajib: aplikasi bicara HTTPS ke Keycloak dan MAJA.
 # libssl3 wajib: native-tls (openssl) dipakai saat runtime.
 RUN apt-get update \
- && apt-get install -y --no-install-recommends ca-certificates libssl3 \
+ && apt-get install -y --no-install-recommends ca-certificates libssl3 curl \
  && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app

@@ -16,11 +16,11 @@ infrastruktur luar.
 Load balancer / TLS (infra)
         │
         ▼  http://SERVER:8091
-┌───────────────┐   /api/*  ┌──────────────────┐
-│ web           │──────────▶│ api              │
-│ nginx + dist  │           │ Axum :3000       │──▶ PostgreSQL eksternal
-│ (frontend)    │           │ (backend)        │     (DATABASE_* / DATABASE_URL)
-└───────────────┘           └──────────────────┘
+┌───────────────┐   /api/*  ┌──────────────────┐   ┌──────────────────┐
+│ web           │──────────▶│ waf              │──▶│ api              │
+│ nginx + dist  │           │ ModSecurity CRS  │   │ Axum :3000       │──▶ PostgreSQL eksternal
+│ (frontend)    │           │ nginx :8080      │   │ (backend)        │     (DATABASE_* / DATABASE_URL)
+└───────────────┘           └──────────────────┘   └──────────────────┘
                                    │
                                    └──▶ Keycloak (account.maja.id)
                                    └──▶ MAJA billing (H2H)
@@ -28,12 +28,14 @@ Load balancer / TLS (infra)
 
 Yang penting dipahami:
 
-- Hanya `web` yang mempublish port (**8091**). `api` memakai `expose`, jadi backend
-  tidak bisa dihubungi langsung dari internet.
+- Hanya `web` yang mempublish port (**8091**). `waf` dan `api` memakai `expose`, jadi
+  WAF dan backend tidak bisa dihubungi langsung dari internet.
 - Frontend dan API **satu origin** (nginx mem-proxy `/api/`), sehingga cookie
   session tidak bermasalah CORS maupun SameSite.
 - Auth ada di `/api/auth/*`, termasuk callback Keycloak
   (`BASE_URL/api/auth/callback`), jadi cukup satu blok proxy.
+- Callback pembayaran `POST /api/v1/payments/callback` hanya menerima koneksi dari
+  IP MAJA `108.136.89.40` pada NGINX publik.
 - Database **tidak** ada di compose production; alamatnya dari 5 variabel `DATABASE_*` (atau `DATABASE_URL` jika di-override) di
   `/opt/qr-payment/.env`.
 
@@ -123,7 +125,7 @@ set -a; . /opt/qr-payment/.env; set +a
 docker build -f deploy/Dockerfile.api -t qrpay-v-backend:latest .
 docker build --build-arg VITE_API_BASE_URL="$PUBLIC_ORIGIN" -t qrpay-v-frontend:latest frontend
 
-docker compose -f deploy/docker-compose.yml up -d --force-recreate api web
+docker compose -f deploy/docker-compose.yml up -d --force-recreate api waf web
 docker compose -f deploy/docker-compose.yml ps
 docker compose -f deploy/docker-compose.yml logs -f api
 ```
@@ -172,6 +174,7 @@ curl -s  http://SERVER:8091/api/v1/workspaces | head -c 300
 curl -sI http://SERVER:8091/ | head -3
 curl -sI http://SERVER:8091/w/meja-12 | head -3          # harus 200 (SPA fallback)
 curl -s  http://SERVER:8091/api/tidak-ada                 # harus 404 JSON, bukan HTML
+curl -s -o /dev/null -w '%{http_code}\n' 'http://SERVER:8091/api/v1/workspaces?q=%3Cscript%3Ealert(1)%3C/script%3E' # harus 403
 ```
 
 Lalu cek manual di browser:
@@ -182,6 +185,7 @@ Lalu cek manual di browser:
 - [ ] Halaman `/admin` membuka dashboard, kelola workspace, locker, dan settings
 - [ ] Webhook MAJA mendarat di `/api/v1/payments/callback` (uji dengan payload uji)
 - [ ] `docker compose logs api` menunjukkan `MAJA H2H dikonfigurasi`, bukan peringatan 503
+- [ ] `docker compose logs waf` menunjukkan audit log ModSecurity tanpa false positive pada alur bisnis sah
 
 ---
 
@@ -204,9 +208,10 @@ cd /opt/qr-payment/src
 `PULL-REPO.sh` melakukan `git reset --hard origin/master`, jadi perubahan yang
 dilakukan langsung di server akan hilang.
 
-Catatan: perubahan backend **wajib** memakai `up -d --force-recreate api`, bukan
+Catatan: perubahan backend **wajib** memakai `up -d --force-recreate api waf web`, bukan
 `docker compose restart api`. `restart` hanya mengulang container lama, sehingga image
-baru tidak terpakai sama sekali.
+baru tidak terpakai sama sekali. Saat WAF atau API dibuat ulang, buat ulang juga proxy
+di depannya agar nginx tidak menyimpan IP upstream lama.
 
 ---
 
@@ -244,8 +249,11 @@ Daftar ini sengaja ditulis supaya tidak dianggap sudah beres:
   `VITE_API_BASE_URL === undefined` (demo) dari `''` (relatif). Belum dikerjakan.
 - **`CorsLayer::permissive()`** masih aktif di `src/main.rs`. Di belakang nginx
   satu origin, CORS tidak diperlukan; sebaiknya diganti daftar origin yang eksplisit.
-- **Belum ada health check untuk `api`** dan belum ada monitoring. Andalkan
-  `restart: unless-stopped` dan `docker compose logs`.
+- Healthcheck `api` dan `waf` hanya memeriksa proses serta jalur proxy; keduanya tidak
+  membuktikan database atau layanan pihak ketiga siap.
+- Allowlist webhook mengasumsikan NGINX menerima koneksi MAJA secara langsung. Jika
+  TLS atau load balancer berada di depannya, konfigurasi `real_ip` untuk proxy tersebut
+  diperlukan sebelum callback dapat diterima.
 - **Kredensial di `.env.example`** (lihat 2.4) belum dirotasi.
 - **`SESSION_SECURE`** harus `true`; kalau salah, browser tetap menerima cookie di
   HTTP dan sesi admin bisa terekspos.

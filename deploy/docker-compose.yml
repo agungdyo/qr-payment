@@ -26,6 +26,44 @@ services:
       TZ: Asia/Jakarta
     expose:
       - "3000"
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://127.0.0.1:3000/api/health >/dev/null || exit 1"]
+      interval: 15s
+      timeout: 5s
+      start_period: 10s
+      retries: 3
+
+  waf:
+    image: owasp/modsecurity-crs:4-nginx-alpine-lts
+    restart: unless-stopped
+    expose:
+      - "8080"
+    environment:
+      PORT: 8080
+      BACKEND: http://api:3000
+      PROXY: 1
+      PROXY_SSL: "off"
+      SERVER_NAME: localhost
+      MODSEC_RULE_ENGINE: "on"
+      BLOCKING_PARANOIA: 1
+      ANOMALY_INBOUND: 5
+      ANOMALY_OUTBOUND: 4
+      ALLOWED_METHODS: "GET HEAD POST OPTIONS PUT DELETE"
+      MODSEC_REQ_BODY_LIMIT: "26214400"
+      MODSEC_AUDIT_LOG: /dev/stdout
+      MODSEC_AUDIT_LOG_PARTS: "ABIJDEFHZ"
+      MODSEC_AUDIT_ENGINE: "RelevantOnly"
+    volumes:
+      - ./waf/modsecurity-override.conf:/etc/modsecurity.d/owasp-crs/rules/REQUEST-900-EXCLUSION-RULES-BEFORE-CRS.conf:ro
+    depends_on:
+      api:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:8080/api/health >/dev/null || exit 1"]
+      interval: 15s
+      timeout: 5s
+      start_period: 10s
+      retries: 3
 
   web:
     image: qrpay-v-frontend:latest
@@ -41,6 +79,7 @@ services:
     ports:
       - "8091:80"
     environment:
-      API_UPSTREAM: http://api:3000
+      API_UPSTREAM: http://waf:8080
     depends_on:
-      - api
+      waf:
+        condition: service_healthy

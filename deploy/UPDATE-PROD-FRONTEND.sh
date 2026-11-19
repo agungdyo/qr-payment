@@ -12,10 +12,9 @@ docker build \
   -t qrpay-v-frontend:latest \
   frontend
 
-# api ikut dibuat ulang karena nginx mem-proxy ke container itu; keduanya harus
-# berasal dari versi kode yang sama.
-echo "== recreate api + web =="
-docker compose -f deploy/docker-compose.yml up -d --force-recreate api web
+# Rantai proxy harus dibuat ulang bersama agar nginx tidak menyimpan IP upstream lama.
+echo "== recreate api + waf + web =="
+docker compose -f deploy/docker-compose.yml up -d --force-recreate api waf web
 
 echo "== images =="
 docker images | grep qrpay || true
