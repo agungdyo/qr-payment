@@ -11,7 +11,7 @@ import type { BillingMode, RateTier } from './api/types'
  */
 
 export const TAX_RATE = 0.11 // PPN
-export const VA_ADMIN_FEE = 3500 // biaya admin VA per transaksi (MAJA)
+export const VA_ADMIN_FEE = 4500 // biaya admin VA per transaksi (MAJA)
 export const MIN_HOURS = 1
 export const MAX_HOURS = 24
 

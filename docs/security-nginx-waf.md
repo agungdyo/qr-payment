@@ -40,7 +40,7 @@ Browser / Klien Publik
                             ▼
 ┌────────────────────────────────────────────────────────┐
 │ waf (Web Application Firewall)                         │
-│ Image: owasp/modsecurity-crs:4-nginx-alpine-lts (:8080)│
+│ Image: owasp/modsecurity-crs:4.25.2-nginx-alpine-202611160811-lts (:8080)│
 │ • Inspeksi ModSecurity v3 + OWASP CRS v4               │
 │ • Blokir serangan (403 Forbidden)                      │
 │ • Audit logging ke stdout                              │
@@ -98,7 +98,7 @@ services:
       retries: 3
 
   waf:
-    image: owasp/modsecurity-crs:4-nginx-alpine-lts
+    image: owasp/modsecurity-crs:4.25.2-nginx-alpine-202611160811-lts
     restart: unless-stopped
     expose:
       - "8080"

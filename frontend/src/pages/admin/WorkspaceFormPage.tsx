@@ -451,7 +451,7 @@ export function WorkspaceFormPage() {
         )}
 
         <p className="text-xs text-zinc-400">
-          PPN 11% + biaya admin VA Rp3.500 ditambahkan otomatis di sisi backend. Estimasi
+          PPN 11% + biaya layanan VA Rp4.500 ditambahkan otomatis di sisi backend. Estimasi
           nilai tarif aktif saat ini: {tiersTotal} (belum termasuk pajak/admin).
         </p>
       </Card>

@@ -548,7 +548,7 @@ export function PaymentFlowPage() {
                 <span className="tabular">{formatIDR(breakdown.tax)}</span>
               </div>
               <div className="mt-1.5 flex justify-between text-zinc-600">
-                <span>Biaya admin VA</span>
+                <span>Biaya layanan</span>
                 <span className="tabular">{formatIDR(breakdown.adminFee)}</span>
               </div>
               <div className="mt-2.5 flex justify-between border-t border-zinc-200 pt-2.5 text-base font-semibold text-zinc-900">
@@ -622,7 +622,7 @@ export function PaymentFlowPage() {
               Bayar {breakdown ? formatIDR(breakdown.total) : '—'}
             </button>
             <p className="-mt-3 text-center text-xs text-zinc-400">
-              Nominal termasuk biaya admin VA Rp3.500 per transaksi
+              Nominal termasuk biaya layanan Rp4.500 per transaksi
             </p>
           </div>
         )
